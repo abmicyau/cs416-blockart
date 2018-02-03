@@ -7,8 +7,10 @@ library (blockartlib) to be used in project 1 of UBC CS 416 2017W2.
 
 package blockartlib
 
-import "crypto/ecdsa"
-import "fmt"
+import (
+	"crypto/ecdsa"
+	"fmt"
+)
 
 // Represents a type of shape in the BlockArt system.
 type ShapeType int
@@ -52,6 +54,72 @@ type MinerNetSettings struct {
 
 	// Canvas settings
 	canvasSettings CanvasSettings
+}
+
+// Represents a canvas in the system.
+type Canvas interface {
+	// Adds a new shape to the canvas.
+	// Can return the following errors:
+	// - DisconnectedError
+	// - InsufficientInkError
+	// - InvalidShapeSvgStringError
+	// - ShapeSvgStringTooLongError
+	// - ShapeOverlapError
+	// - OutOfBoundsError
+	AddShape(validateNum uint8, shapeType ShapeType, shapeSvgString string, fill string, stroke string) (shapeHash string, blockHash string, inkRemaining uint32, err error)
+
+	// Returns the encoding of the shape as an svg string.
+	// Can return the following errors:
+	// - DisconnectedError
+	// - InvalidShapeHashError
+	GetSvgString(shapeHash string) (svgString string, err error)
+
+	// Returns the amount of ink currently available.
+	// Can return the following errors:
+	// - DisconnectedError
+	GetInk() (inkRemaining uint32, err error)
+
+	// Removes a shape from the canvas.
+	// Can return the following errors:
+	// - DisconnectedError
+	// - ShapeOwnerError
+	DeleteShape(validateNum uint8, shapeHash string) (inkRemaining uint32, err error)
+
+	// Retrieves hashes contained by a specific block.
+	// Can return the following errors:
+	// - DisconnectedError
+	// - InvalidBlockHashError
+	GetShapes(blockHash string) (shapeHashes []string, err error)
+
+	// Returns the block hash of the genesis block.
+	// Can return the following errors:
+	// - DisconnectedError
+	GetGenesisBlock() (blockHash string, err error)
+
+	// Retrieves the children blocks of the block identified by blockHash.
+	// Can return the following errors:
+	// - DisconnectedError
+	// - InvalidBlockHashError
+	GetChildren(blockHash string) (blockHashes []string, err error)
+
+	// Closes the canvas/connection to the BlockArt network.
+	// - DisconnectedError
+	CloseCanvas() (inkRemaining uint32, err error)
+}
+
+type CanvasInstance struct {
+	minerAddr string
+	privKey   ecdsa.PrivateKey
+	settings  CanvasSettings
+	shapes    map[string]Shape
+}
+
+type Shape struct {
+	shapeType      ShapeType
+	shapeSvgString string
+	fill           string
+	stroke         string
+	owner          ecdsa.PublicKey
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -131,56 +199,8 @@ func (e InvalidBlockHashError) Error() string {
 // </ERROR DEFINITIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
-// Represents a canvas in the system.
-type Canvas interface {
-	// Adds a new shape to the canvas.
-	// Can return the following errors:
-	// - DisconnectedError
-	// - InsufficientInkError
-	// - InvalidShapeSvgStringError
-	// - ShapeSvgStringTooLongError
-	// - ShapeOverlapError
-	// - OutOfBoundsError
-	AddShape(validateNum uint8, shapeType ShapeType, shapeSvgString string, fill string, stroke string) (shapeHash string, blockHash string, inkRemaining uint32, err error)
-
-	// Returns the encoding of the shape as an svg string.
-	// Can return the following errors:
-	// - DisconnectedError
-	// - InvalidShapeHashError
-	GetSvgString(shapeHash string) (svgString string, err error)
-
-	// Returns the amount of ink currently available.
-	// Can return the following errors:
-	// - DisconnectedError
-	GetInk() (inkRemaining uint32, err error)
-
-	// Removes a shape from the canvas.
-	// Can return the following errors:
-	// - DisconnectedError
-	// - ShapeOwnerError
-	DeleteShape(validateNum uint8, shapeHash string) (inkRemaining uint32, err error)
-
-	// Retrieves hashes contained by a specific block.
-	// Can return the following errors:
-	// - DisconnectedError
-	// - InvalidBlockHashError
-	GetShapes(blockHash string) (shapeHashes []string, err error)
-
-	// Returns the block hash of the genesis block.
-	// Can return the following errors:
-	// - DisconnectedError
-	GetGenesisBlock() (blockHash string, err error)
-
-	// Retrieves the children blocks of the block identified by blockHash.
-	// Can return the following errors:
-	// - DisconnectedError
-	// - InvalidBlockHashError
-	GetChildren(blockHash string) (blockHashes []string, err error)
-
-	// Closes the canvas/connection to the BlockArt network.
-	// - DisconnectedError
-	CloseCanvas() (inkRemaining uint32, err error)
-}
+////////////////////////////////////////////////////////////////////////////////////////////
+// <EXPORTED METHODS>
 
 // The constructor for a new Canvas object instance. Takes the miner's
 // IP:port address string and a public-private key pair (ecdsa private
@@ -193,7 +213,107 @@ type Canvas interface {
 // Can return the following errors:
 // - DisconnectedError
 func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, setting CanvasSettings, err error) {
-	// TODO
-	// For now return DisconnectedError
-	return nil, CanvasSettings{}, DisconnectedError("")
+	setting = CanvasSettings{} // TODO: fetch from server
+	canvas = CanvasInstance{minerAddr, privKey, setting, make(map[string]Shape)}
+
+	return canvas, setting, nil
 }
+
+// Adds a new shape to the canvas.
+// Can return the following errors:
+// - DisconnectedError
+// - InsufficientInkError
+// - InvalidShapeSvgStringError
+// - ShapeSvgStringTooLongError
+// - ShapeOverlapError
+// - OutOfBoundsError
+func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSvgString string, fill string, stroke string) (shapeHash string, blockHash string, inkRemaining uint32, err error) {
+	shape := Shape{shapeType, shapeSvgString, fill, stroke, c.privKey.PublicKey}
+	shapeHash = shape.hash()
+
+	blockHash = ""
+	inkRemaining = 0
+
+	if c.hasOverlappingShape(shape) {
+		return shapeHash, blockHash, inkRemaining, ShapeOverlapError(shapeHash)
+	}
+
+	return shapeHash, blockHash, inkRemaining, nil
+}
+
+// Returns the encoding of the shape as an svg string.
+// Can return the following errors:
+// - DisconnectedError
+// - InvalidShapeHashError
+func (c CanvasInstance) GetSvgString(shapeHash string) (svgString string, err error) {
+	// TODO
+	return "", nil
+}
+
+// Returns the amount of ink currently available.
+// Can return the following errors:
+// - DisconnectedError
+func (c CanvasInstance) GetInk() (inkRemaining uint32, err error) {
+	// TODO
+	return 0, nil
+}
+
+// Removes a shape from the canvas.
+// Can return the following errors:
+// - DisconnectedError
+// - ShapeOwnerError
+func (c CanvasInstance) DeleteShape(validateNum uint8, shapeHash string) (inkRemaining uint32, err error) {
+	// TODO
+	return 0, nil
+}
+
+// Retrieves hashes contained by a specific block.
+// Can return the following errors:
+// - DisconnectedError
+// - InvalidBlockHashError
+func (c CanvasInstance) GetShapes(blockHash string) (shapeHashes []string, err error) {
+	// TODO
+	return make([]string, 0), nil
+}
+
+// Returns the block hash of the genesis block.
+// Can return the following errors:
+// - DisconnectedError
+func (c CanvasInstance) GetGenesisBlock() (blockHash string, err error) {
+	// TODO
+	return "", nil
+}
+
+// Retrieves the children blocks of the block identified by blockHash.
+// Can return the following errors:
+// - DisconnectedError
+// - InvalidBlockHashError
+func (c CanvasInstance) GetChildren(blockHash string) (blockHashes []string, err error) {
+	// TODO
+	return make([]string, 0), nil
+}
+
+// Closes the canvas/connection to the BlockArt network.
+// - DisconnectedError
+func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
+	// TODO
+	return 0, nil
+}
+
+// </EXPORTED METHODS>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <PRIVATE METHODS>
+
+func (c CanvasInstance) hasOverlappingShape(shape Shape) bool {
+	// check overlap against shapes in c.shapes which are not owned by this app
+	return false
+}
+
+func (s Shape) hash() string {
+	return ""
+}
+
+// </PRIVATE METHODS>
+////////////////////////////////////////////////////////////////////////////////////////////

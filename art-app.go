@@ -13,47 +13,55 @@ package main
 // this art-app.go file
 import "./blockartlib"
 
-import "fmt"
-import "os"
-import "crypto/ecdsa"
+import (
+	"fmt"
+	"os"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+)
 
 func main() {
 	minerAddr := "127.0.0.1:8080"
-	privKey := // TODO: use crypto/ecdsa to read pub/priv keys from a file argument.
+	// TODO: use crypto/ecdsa to read pub/priv keys from a file argument.
+	privKey, err := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
+	if checkError(err) != nil {
+		return
+	}
 
 	// Open a canvas.
-	canvas, settings, err := blockartlib.OpenCanvas(minerAddr, privKey)
+	_, _, err = blockartlib.OpenCanvas(minerAddr, *privKey)
 	if checkError(err) != nil {
 		return
 	}
 
-    validateNum := 2
+ 	// validateNum := 2
 
-	// Add a line.
-	shapeHash, blockHash, ink, err := canvas.AddShape(validateNum, blockartlib.PATH, "M 0 0 L 0 5", "transparent", "red")
-	if checkError(err) != nil {
-		return
-	}
+	// // Add a line.
+	// shapeHash, blockHash, ink, err := canvas.AddShape(validateNum, blockartlib.PATH, "M 0 0 L 0 5", "transparent", "red")
+	// if checkError(err) != nil {
+	// 	return
+	// }
 
-	// Add another line.
-	shapeHash2, blockHash2, ink2, err := canvas.AddShape(validateNum, blockartlib.PATH, "M 0 0 L 5 0", "transparent", "blue")
-	if checkError(err) != nil {
-		return
-	}
+	// // Add another line.
+	// shapeHash2, blockHash2, ink2, err := canvas.AddShape(validateNum, blockartlib.PATH, "M 0 0 L 5 0", "transparent", "blue")
+	// if checkError(err) != nil {
+	// 	return
+	// }
 
-	// Delete the first line.
-	ink3, err := canvas.DeleteShape(validateNum, shapeHash)
-	if checkError(err) != nil {
-		return
-	}
+	// // Delete the first line.
+	// ink3, err := canvas.DeleteShape(validateNum, shapeHash)
+	// if checkError(err) != nil {
+	// 	return
+	// }
 
-	// assert ink3 > ink2
+	// // assert ink3 > ink2
 
-	// Close the canvas.
-	ink4, err := canvas.CloseCanvas()
-	if checkError(err) != nil {
-		return
-	}
+	// // Close the canvas.
+	// ink4, err := canvas.CloseCanvas()
+	// if checkError(err) != nil {
+	// 	return
+	// }
 }
 
 // If error is non-nil, print it out and return it.

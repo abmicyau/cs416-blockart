@@ -9,19 +9,45 @@ go run ink-miner.go [server ip:port] [pubKey] [privKey]
 package main
 
 import (
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
 	"log"
 	"net"
 	"net/rpc"
 	"os"
+	"strings"
 )
 
+const genesisHash = "01234567890123456789012345678901"
+
+type Operation struct {
+	op string
+}
+
+type OperationRecord struct {
+	Op     Operation
+	OpSig  string
+	PubKey string
+}
+
+type Block struct {
+	BlockNo  uint32
+	PrevHash string
+	Records  []OperationRecord
+	PubKey   string
+	Nonce    uint32
+}
+
 var (
-	logger     *log.Logger
-	localAddr  string
-	serverAddr string
-	miners     []*rpc.Client // will probably change this to an array of Miner structs, just using connection for now
-	minerAddrs []string
-	blockChain map[string]string // will change this to a Block type  once block generation is done
+	logger                    *log.Logger
+	localAddr                 string
+	serverAddr                string
+	miners                    []*rpc.Client     // will probably change this to an array of Miner structs, just using connection for now
+	blockchain                map[string]*Block = make(map[string]*Block)
+	longestChainLastBlockHash string
+	nHashZeroes               uint32
+	// minerAddrs []string
 	// pubKey
 	// privKey
 )
@@ -31,26 +57,12 @@ type RpcMiners rpc.Client
 func main() {
 	Init()
 	ListenForMiners(EstablishLocalListener())
+	for {
+		MineNoOpBlock(nHashZeroes)
+	}
 	// ConnectToServer(localAddr, serverAddr)
 	// Server.Call("<listener>.GetNodes", pubKey, &minerAddrs)
 	// ConnectToMiners(minerAddrs)
-
-	if len(minerAddrs) > 0 {
-		testRPC()
-	}
-
-	for {
-
-	}
-}
-
-// TESTING FUNCTION, ONLY POC FOR FLOODING PROTOCOL, TODO: DELETE
-func testRPC() {
-	ConnectToMiners(minerAddrs)
-	var isValid bool
-	for _, miner := range miners {
-		miner.Call("RpcMiners.SendBlock", "hi1234", &isValid)
-	}
 }
 
 // Initializes the logger, args, and other global variables that will be used
@@ -58,14 +70,7 @@ func Init() {
 	logger = log.New(os.Stdout, "[Initializing]\n", log.Lshortfile)
 	args := os.Args[1:]
 	serverAddr = args[0]
-	blockChain = make(map[string]string)
-	// ONLY POC FOR FLOODING PROTOCOL, ADDS MANUALLY MINER ADDRESSES TODO: DELETE
-	if len(args) > 1 {
-		for _, arg := range args[1:] {
-			minerAddrs = append(minerAddrs, arg)
-		}
-	}
-
+	nHashZeroes = uint32(5)
 	// pubKey = args[1]
 	// privKey = args[2]
 }
@@ -112,9 +117,52 @@ func check(err error) {
 	}
 }
 
+// Creates a noOp block and block hash that has a suffix of nHashZeroes
+// If successful, block is appended to the longestChainLastBlockHashin the blockchain map
+func MineNoOpBlock(nHashZeroes uint32) {
+	var nonce uint32 = 0
+	var prevHash string
+	var blockNo uint32
+
+	if longestChainLastBlockHash == "" {
+		prevHash = genesisHash
+		blockNo = 0
+	} else {
+		prevHash = longestChainLastBlockHash
+		blockNo = blockchain[prevHash].BlockNo + 1
+	}
+
+	for {
+		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), "<pubKey>", nonce}
+		encodedBlock, err := json.Marshal(block)
+		if err != nil {
+			panic(err)
+		}
+		blockHash := computeBlockHash(encodedBlock)
+		if strings.HasSuffix(blockHash, strings.Repeat("0", int(nHashZeroes))) {
+			logger.Println(block, blockHash)
+			blockchain[blockHash] = block
+			longestChainLastBlockHash = blockHash
+			return
+		} else {
+			nonce++
+		}
+	}
+}
+
+// Computes the hash of the given block
+func computeBlockHash(block []byte) string {
+	h := md5.New()
+	value := []byte(block)
+	h.Write(value)
+	str := hex.EncodeToString(h.Sum(nil))
+	return str
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////////////
 // < RPC CODE >
 
+// Validates a block sent from another miner, if valid and new, disseminate accordingly
 func (t *RpcMiners) SendBlock(block string, isValid *bool) error {
 	logger.SetPrefix("[SendBlock()]\n")
 	logger.Println("Received Block: ", block)

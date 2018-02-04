@@ -13,13 +13,40 @@ import (
   "net"
   "net/rpc"
   "os"
+  "crypto/md5"
+	"encoding/hex"
+  "encoding/json"
+  "strings"
 )
+
+const genesisHash = "01234567890123456789012345678901"
+
+type Operation struct {
+  op string
+}
+
+type OperationRecord struct {
+  Op     Operation
+  OpSig  string
+  PubKey string
+}
+
+type Block struct {
+  BlockNo  uint32
+  PrevHash string
+  Records  []OperationRecord
+  PubKey   string
+  Nonce    uint32
+}
 
 var (
   logger *log.Logger
   localAddr string
   serverAddr string
   miners []*rpc.Client // will probably change this to an array of Miner structs, just using connection for now
+  blockchain map[string]*Block = make(map[string]*Block)
+  longestChainLastBlockHash string
+  nHashZeroes uint32
   // minerAddrs []string
   // pubKey
   // privKey
@@ -28,6 +55,9 @@ var (
 func main() {
   Init()
   ListenForMiners(EstablishLocalListener())
+  for {
+    MineNoOpBlock(nHashZeroes)
+  }
   // ConnectToServer(localAddr, serverAddr)
   // Server.Call("<listener>.GetNodes", pubKey, &minerAddrs)
   // ConnectToMiners(minerAddrs)
@@ -38,6 +68,7 @@ func Init() {
   logger = log.New(os.Stdout, "[Initializing]\n", log.Lshortfile)
   args := os.Args[1:]
   serverAddr = args[0]
+  nHashZeroes = uint32(5)
   // pubKey = args[1]
   // privKey = args[2]
 }
@@ -73,3 +104,45 @@ func ListenForMiners(conn net.Listener) {
 //   check(err)
 //   serverConn.Call("<listener>.Register", localAddr, &<settings>)
 // }
+
+// Creates a noOp block and block hash that has a suffix of nHashZeroes
+// If successful, block is appended to the longestChainLastBlockHashin the blockchain map
+func MineNoOpBlock(nHashZeroes uint32) {
+  var nonce uint32 = 0
+  var prevHash string
+  var blockNo uint32
+
+  if longestChainLastBlockHash == "" {
+    prevHash = genesisHash
+    blockNo = 0
+  } else {
+    prevHash = longestChainLastBlockHash
+    blockNo = blockchain[prevHash].BlockNo + 1
+  }
+
+  for {
+    block := &Block{blockNo, prevHash, make([]OperationRecord, 0), "<pubKey>", nonce}
+    encodedBlock, err := json.Marshal(block)
+    if err != nil {
+      panic(err)
+    }
+    blockHash := computeBlockHash(encodedBlock)
+    if strings.HasSuffix(blockHash, strings.Repeat("0", int(nHashZeroes))) {
+      logger.Println(block, blockHash)
+      blockchain[blockHash] = block
+      longestChainLastBlockHash = blockHash
+      return
+    } else {
+      nonce++
+    }
+  }
+}
+
+// Computes the hash of the given block
+func computeBlockHash(block []byte) string {
+	h := md5.New()
+	value := []byte(block)
+	h.Write(value)
+	str := hex.EncodeToString(h.Sum(nil))
+	return str
+}

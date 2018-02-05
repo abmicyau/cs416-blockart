@@ -20,8 +20,6 @@ import (
 	"strings"
 )
 
-const genesisHash = "01234567890123456789012345678901"
-
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <TYPE DECLARATIONS>
 
@@ -142,6 +140,7 @@ func (m *Miner) mineNoOpBlock() {
 			logger.Println(block, blockHash)
 			m.blockchain[blockHash] = block
 			m.longestChainLastBlockHash = blockHash
+			disseminateBlock(block)
 			return
 		} else {
 			nonce++
@@ -154,6 +153,26 @@ func (m *Miner) mineNoOpBlock() {
 
 // Placeholder to prevent the compile warning
 func (m *Miner) Hello(arg string, _ *struct{}) error {
+	return nil
+}
+
+func (t *Miner) SendBlock(block string, isValid *bool) error {
+	logger.SetPrefix("[SendBlock()]\n")
+	logger.Println("Received Block: ", block)
+	// TODO:
+	//		Validate Block
+	//		If Valid, add to block chain
+	//		Else return invalid
+
+	// If new block, disseminate
+	// if _, exists := blockChain[block]; !exists {
+	// 	blockChain[block] = block
+	// 	//		Disseminate Block to connected Miners
+	// 	for _, minerCon := range miners {
+	// 		var isValid bool
+	// 		minerCon.Call("Miner.SendBlock", block, &isValid)
+	// 	}
+	// }
 	return nil
 }
 
@@ -170,6 +189,13 @@ func computeBlockHash(block []byte) string {
 	h.Write(value)
 	str := hex.EncodeToString(h.Sum(nil))
 	return str
+}
+
+func disseminateBlock(block Block) {
+	for _, minerCon := range miners {
+		var isValid bool
+		minerCon.Call("Miner.SendBlock", block.PrevHash, &isValid)
+	}
 }
 
 func checkError(err error) error {

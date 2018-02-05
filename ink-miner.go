@@ -12,6 +12,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/rpc"
@@ -21,14 +22,35 @@ import (
 
 const genesisHash = "01234567890123456789012345678901"
 
-type Operation struct {
-	op string
-}
+////////////////////////////////////////////////////////////////////////////////////////////
+// <TYPE DECLARATIONS>
 
-type OperationRecord struct {
-	Op     Operation
-	OpSig  string
-	PubKey string
+// Represents a type of shape in the BlockArt system.
+type ShapeType int
+
+const (
+	// Path shape.
+	PATH ShapeType = iota
+)
+
+// Represents the type of operation for a shape on the canvas
+type OpType int
+
+const (
+	ADD OpType = iota
+	REMOVE
+)
+
+type Miner struct {
+	logger     *log.Logger
+	localAddr  string
+	serverAddr string
+	// will probably change this to an array of Miner structs, just using connection for now
+	miners                    []*rpc.Client
+	blockchain                map[string]*Block
+	longestChainLastBlockHash string
+	genesisHash               string
+	nHashZeroes               uint32
 }
 
 type Block struct {
@@ -39,97 +61,74 @@ type Block struct {
 	Nonce    uint32
 }
 
+type Operation struct {
+	Type        OpType
+	ShapeHash   string
+	ValidateNum uint8
+}
+
+type OperationRecord struct {
+	Op     Operation
+	OpSig  string
+	PubKey string
+}
+
+// </TYPE DECLARATIONS>
+////////////////////////////////////////////////////////////////////////////////////////////
+
 var (
-	logger                    *log.Logger
-	localAddr                 string
-	serverAddr                string
-	miners                    []*rpc.Client     // will probably change this to an array of Miner structs, just using connection for now
-	blockchain                map[string]*Block = make(map[string]*Block)
-	longestChainLastBlockHash string
-	nHashZeroes               uint32
-	// minerAddrs []string
-	// pubKey
-	// privKey
+	logger *log.Logger
 )
 
-type RpcMiners rpc.Client
-
 func main() {
-	Init()
-	ListenForMiners(EstablishLocalListener())
-	for {
-		MineNoOpBlock(nHashZeroes)
-	}
-	// ConnectToServer(localAddr, serverAddr)
-	// Server.Call("<listener>.GetNodes", pubKey, &minerAddrs)
-	// ConnectToMiners(minerAddrs)
-}
-
-// Initializes the logger, args, and other global variables that will be used
-func Init() {
 	logger = log.New(os.Stdout, "[Initializing]\n", log.Lshortfile)
+
+	miner := new(Miner)
+	miner.init()
+	go miner.listenRPC()
+	for {
+		miner.mineNoOpBlock()
+	}
+}
+
+func (m *Miner) init() {
 	args := os.Args[1:]
-	serverAddr = args[0]
-	nHashZeroes = uint32(5)
-	// pubKey = args[1]
-	// privKey = args[2]
+	m.serverAddr = args[0]
+	m.nHashZeroes = uint32(5)
+	m.genesisHash = "01234567890123456789012345678901"
+	m.blockchain = make(map[string]*Block)
 }
 
-// Establishes the server that will listen for incoming connections from other miners
-func EstablishLocalListener() net.Listener {
-	conn, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		// STUB - don't necessarily have to handle this with panic
-		panic(err)
-	}
-	localAddr = conn.Addr().String()
-	logger.Println("Listening on: ", localAddr)
-	return conn
-}
+func (m *Miner) listenRPC() {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:8080")
+	checkError(err)
+	listener, err := net.ListenTCP("tcp", tcpAddr)
+	checkError(err)
 
-// Listens for incoming connections from other miners
-func ListenForMiners(conn net.Listener) {
-	rpcMinersServer := rpc.NewServer()
-	rpcMinersRPC := new(RpcMiners)
-	rpcMinersServer.Register(rpcMinersRPC)
-	go rpcMinersServer.Accept(conn)
-}
+	miner := new(Miner)
+	rpc.Register(miner)
 
-func ConnectToMiners(minerAddrs []string) {
-	for _, minerAddr := range minerAddrs {
-		minerConn, err := rpc.Dial("tcp", minerAddr)
-		check(err)
-		miners = append(miners, minerConn)
-	}
-}
-
-// // Establishes connection and registers ink miner to the main server
-// func ConnectToServer(localAddr, serverAddr string) {
-//   serverConn, err := rpc.Dial("tcp", serverAddr)
-//   check(err)
-//   serverConn.Call("<listener>.Register", localAddr, &<settings>)
-// }
-
-// Checks for error and Prints if there is one
-func check(err error) {
-	if err != nil {
-		logger.Println(err)
+	for {
+		conn, err := listener.Accept()
+		checkError(err)
+		logger.Println("New connection from " + conn.RemoteAddr().String())
+		go rpc.ServeConn(conn)
 	}
 }
 
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
 // If successful, block is appended to the longestChainLastBlockHashin the blockchain map
-func MineNoOpBlock(nHashZeroes uint32) {
+func (m *Miner) mineNoOpBlock() {
 	var nonce uint32 = 0
 	var prevHash string
 	var blockNo uint32
 
-	if longestChainLastBlockHash == "" {
-		prevHash = genesisHash
+	if m.longestChainLastBlockHash == "" {
+		prevHash = m.genesisHash
 		blockNo = 0
 	} else {
-		prevHash = longestChainLastBlockHash
-		blockNo = blockchain[prevHash].BlockNo + 1
+		prevHash = m.longestChainLastBlockHash
+		blockNo = m.blockchain[prevHash].BlockNo + 1
 	}
 
 	for {
@@ -139,16 +138,30 @@ func MineNoOpBlock(nHashZeroes uint32) {
 			panic(err)
 		}
 		blockHash := computeBlockHash(encodedBlock)
-		if strings.HasSuffix(blockHash, strings.Repeat("0", int(nHashZeroes))) {
+		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.nHashZeroes))) {
 			logger.Println(block, blockHash)
-			blockchain[blockHash] = block
-			longestChainLastBlockHash = blockHash
+			m.blockchain[blockHash] = block
+			m.longestChainLastBlockHash = blockHash
 			return
 		} else {
 			nonce++
 		}
 	}
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <RPC METHODS>
+
+// Placeholder to prevent the compile warning
+func (m *Miner) Hello(arg string, _ *struct{}) error {
+	return nil
+}
+
+// </RPC METHODS>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <HELPER METHODS>
 
 // Computes the hash of the given block
 func computeBlockHash(block []byte) string {
@@ -159,27 +172,13 @@ func computeBlockHash(block []byte) string {
 	return str
 }
 
-//////////////////////////////////////////////////////////////////////////////////////////////////
-// < RPC CODE >
-
-// Validates a block sent from another miner, if valid and new, disseminate accordingly
-func (t *RpcMiners) SendBlock(block string, isValid *bool) error {
-	logger.SetPrefix("[SendBlock()]\n")
-	logger.Println("Received Block: ", block)
-	// TODO:
-	//		Validate Block
-	//		If Valid, add to block chain
-	//		Else return invalid
-
-	// If new block, disseminate
-	if _, exists := blockChain[block]; !exists {
-		blockChain[block] = block
-		//		Disseminate Block to connected Miners
-		for _, minerCon := range miners {
-			var isValid bool
-			minerCon.Call("RpcMiners.SendBlock", block, &isValid)
-		}
+func checkError(err error) error {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return err
 	}
-
 	return nil
 }
+
+// </HELPER METHODS>
+////////////////////////////////////////////////////////////////////////////////////////////

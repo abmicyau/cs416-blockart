@@ -43,10 +43,9 @@ const (
 )
 
 type Miner struct {
-	logger     *log.Logger
-	localAddr  string
-	serverAddr string
-	// will probably change this to an array of Miner structs, just using connection for now
+	logger                    *log.Logger
+	localAddr                 string
+	serverAddr                string
 	miners                    []*rpc.Client
 	blockchain                map[string]*Block
 	longestChainLastBlockHash string
@@ -54,26 +53,36 @@ type Miner struct {
 	nHashZeroes               uint32
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
+    shapes                    map[string]*Shape
 }
 
 type Block struct {
 	BlockNo  uint32
 	PrevHash string
 	Records  []OperationRecord
-	PubKey   string
+	PubKey   ecdsa.PublicKey
 	Nonce    uint32
+}
+
+type Shape struct {
+	ShapeType      ShapeType
+	ShapeSvgString string
+	Fill           string
+	Stroke         string
+	Owner          ecdsa.PublicKey
 }
 
 type Operation struct {
 	Type        OpType
-	ShapeHash   string
+	Shape       Shape
+    ShapeHash   string
 	ValidateNum uint8
 }
 
 type OperationRecord struct {
 	Op     Operation
 	OpSig  string
-	PubKey string
+	PubKey ecdsa.PublicKey
 }
 
 // </TYPE DECLARATIONS>
@@ -140,14 +149,15 @@ func (m *Miner) mineNoOpBlock() {
 	}
 
 	for {
-		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), "<pubKey>", nonce}
+		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), ecdsa.PublicKey{}, nonce}
 		encodedBlock, err := json.Marshal(block)
 		if err != nil {
 			panic(err)
 		}
-		blockHash := computeBlockHash(encodedBlock)
+		blockHash := md5Hash(encodedBlock)
 		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.nHashZeroes))) {
 			logger.Println(block, blockHash)
+            m.updateShapes(block)
 			m.blockchain[blockHash] = block
 			m.longestChainLastBlockHash = blockHash
 			return
@@ -157,11 +167,40 @@ func (m *Miner) mineNoOpBlock() {
 	}
 }
 
+// Updates the miner's shape collection for a newly mined block.
+// AddShape operations add a shape to the collection and DeleteShape
+// operations remove them.
+//
+// Assumption: an ADD and REMOVE operation for the same shape will
+// not exist in the same block.
+//
+// TODO: Remember that any time we switch blockchains (for example,
+// the if current one is outrun), we must reverse all operations up
+// to the most recent ancestor and re-apply the updated shapes in
+// the new chain. We must also remember to re-create the shape
+// collection if the miner newly joins the network, or upon recovery
+// from a disconnection/failure.
+//
+func (m *Miner) updateShapes(block *Block) {
+    for _, record := range block.Records {
+        op := record.Op
+        if op.Type == ADD {
+            m.shapes[op.ShapeHash] = &op.Shape
+        } else {
+            delete(m.shapes, op.ShapeHash)
+        }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <RPC METHODS>
 
-// Placeholder to prevent the compile warning
-func (m *Miner) Hello(arg string, _ *struct{}) error {
+// Get the svg string for the shape identified by a given shape hash, if it exists
+func (m *Miner) GetSvgString(hash string, reply *string) error {
+    shape := m.shapes[hash]
+    if shape != nil {
+        *reply = shape.ShapeSvgString
+    }
 	return nil
 }
 
@@ -171,11 +210,10 @@ func (m *Miner) Hello(arg string, _ *struct{}) error {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>
 
-// Computes the hash of the given block
-func computeBlockHash(block []byte) string {
+// Computes the md5 hash of a given byte slice
+func md5Hash(data []byte) string {
 	h := md5.New()
-	value := []byte(block)
-	h.Write(value)
+	h.Write(data)
 	str := hex.EncodeToString(h.Sum(nil))
 	return str
 }

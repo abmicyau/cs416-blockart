@@ -9,11 +9,14 @@ go run ink-miner.go [server ip:port] [pubKey] [privKey]
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/md5"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
-    "fmt"
 	"net"
 	"net/rpc"
 	"os"
@@ -49,6 +52,8 @@ type Miner struct {
 	longestChainLastBlockHash string
 	genesisHash               string
 	nHashZeroes               uint32
+	pubKey                    ecdsa.PublicKey
+	privKey                   ecdsa.PrivateKey
 }
 
 type Block struct {
@@ -84,9 +89,9 @@ func main() {
 	miner := new(Miner)
 	miner.init()
 	go miner.listenRPC()
-    for {
-	   miner.mineNoOpBlock()
-    }
+	for {
+		miner.mineNoOpBlock()
+	}
 }
 
 func (m *Miner) init() {
@@ -95,6 +100,11 @@ func (m *Miner) init() {
 	m.nHashZeroes = uint32(5)
 	m.genesisHash = "01234567890123456789012345678901"
 	m.blockchain = make(map[string]*Block)
+	if len(args) <= 1 {
+		priv := generateNewKeys()
+		m.privKey = priv
+		m.pubKey = priv.PublicKey
+	}
 }
 
 func (m *Miner) listenRPC() {
@@ -152,7 +162,7 @@ func (m *Miner) mineNoOpBlock() {
 
 // Placeholder to prevent the compile warning
 func (m *Miner) Hello(arg string, _ *struct{}) error {
-    return nil
+	return nil
 }
 
 // </RPC METHODS>
@@ -176,6 +186,13 @@ func checkError(err error) error {
 		return err
 	}
 	return nil
+}
+
+func generateNewKeys() ecdsa.PrivateKey {
+	c := elliptic.P224()
+	privKey, err := ecdsa.GenerateKey(c, rand.Reader)
+	checkError(err)
+	return *privKey
 }
 
 // </HELPER METHODS>

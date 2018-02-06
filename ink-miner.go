@@ -49,6 +49,7 @@ type Miner struct {
 	longestChainLastBlockHash string
 	genesisHash               string
 	nHashZeroes               uint32
+	minerAddrs                []string
 }
 
 type Block struct {
@@ -140,7 +141,7 @@ func (m *Miner) mineNoOpBlock() {
 			logger.Println(block, blockHash)
 			m.blockchain[blockHash] = block
 			m.longestChainLastBlockHash = blockHash
-			disseminateBlock(block)
+			disseminateBlock(blockHash)
 			return
 		} else {
 			nonce++
@@ -156,7 +157,7 @@ func (m *Miner) Hello(arg string, _ *struct{}) error {
 	return nil
 }
 
-func (t *Miner) SendBlock(block string, isValid *bool) error {
+func (t *Miner) SendBlock(blockHash string, isValid *bool) error {
 	logger.SetPrefix("[SendBlock()]\n")
 	logger.Println("Received Block: ", block)
 	// TODO:
@@ -165,14 +166,14 @@ func (t *Miner) SendBlock(block string, isValid *bool) error {
 	//		Else return invalid
 
 	// If new block, disseminate
-	// if _, exists := blockChain[block]; !exists {
-	// 	blockChain[block] = block
-	// 	//		Disseminate Block to connected Miners
-	// 	for _, minerCon := range miners {
-	// 		var isValid bool
-	// 		minerCon.Call("Miner.SendBlock", block, &isValid)
-	// 	}
-	// }
+	if _, exists := m.blockchain[blockHash] !exists {
+		m.blockchain[blockHash] = t.blockchain[blockHash]
+		//		Disseminate Block to connected Miners
+		for _, minerCon := range miners {
+			var isValid bool
+			minerCon.Call("Miner.SendBlock", blockHash, &isValid)
+		}
+	}
 	return nil
 }
 
@@ -191,10 +192,10 @@ func computeBlockHash(block []byte) string {
 	return str
 }
 
-func disseminateBlock(block Block) {
+func disseminateBlock(blockHash string) {
 	for _, minerCon := range miners {
 		var isValid bool
-		minerCon.Call("Miner.SendBlock", block.PrevHash, &isValid)
+		minerCon.Call("Miner.SendBlock", blockHash, &isValid)
 	}
 }
 

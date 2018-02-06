@@ -14,11 +14,11 @@ package main
 import "./blockartlib"
 
 import (
-	"fmt"
-	"os"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"fmt"
+	"os"
 )
 
 func main() {
@@ -35,7 +35,7 @@ func main() {
 		return
 	}
 
- 	// validateNum := 2
+	// validateNum := 2
 
 	// // Add a line.
 	// shapeHash, blockHash, ink, err := canvas.AddShape(validateNum, blockartlib.PATH, "M 0 0 L 0 5", "transparent", "red")

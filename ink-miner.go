@@ -58,6 +58,7 @@ type Miner struct {
 	privKey                   ecdsa.PrivateKey
 	shapes                    map[string]*Shape
 	settings                  MinerSettings
+	minerAddrs                []string
 }
 
 type Block struct {
@@ -129,6 +130,10 @@ type MinerInfo struct {
 	Key     ecdsa.PublicKey
 }
 
+type BlockAndHash struct {
+	Blck      Block
+	BlockHash string
+}
 // </TYPE DECLARATIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -143,6 +148,8 @@ func main() {
 	miner.init()
 	go miner.listenRPC()
 	miner.registerWithServer()
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:53969") // for manual adding of miners right now
+	miner.connectToMiners()
 	for {
 		miner.mineNoOpBlock()
 	}
@@ -162,14 +169,15 @@ func (m *Miner) init() {
 }
 
 func (m *Miner) listenRPC() {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:8080")
+	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
 	m.localAddr = *tcpAddr
 
-	miner := new(Miner)
-	rpc.Register(miner)
+	logger.Println("Listening on: ", listener.Addr().String())
+
+	rpc.Register(m)
 
 	for {
 		conn, err := listener.Accept()
@@ -199,6 +207,14 @@ func (m *Miner) startHeartBeats() {
 	}
 }
 
+func (m *Miner) connectToMiners() {
+	for _, minerAddr := range m.minerAddrs {
+		minerConn, err := rpc.Dial("tcp", minerAddr)
+		checkError(err)
+		m.miners = append(m.miners, minerConn)
+	}
+}
+
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
 // If successful, block is appended to the longestChainLastBlockHashin the blockchain map
 func (m *Miner) mineNoOpBlock() {
@@ -225,7 +241,13 @@ func (m *Miner) mineNoOpBlock() {
 			logger.Println(block, blockHash)
 			m.updateShapes(block)
 			m.blockchain[blockHash] = block
+			logger.Println(m.blockchain)
 			m.longestChainLastBlockHash = blockHash
+			blockAndHash := &BlockAndHash{*block, blockHash}
+			for _, minerCon := range m.miners {
+				var isValid bool
+				minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+			}
 			return
 		} else {
 			nonce++
@@ -261,6 +283,40 @@ func (m *Miner) updateShapes(block *Block) {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <RPC METHODS>
 
+// Placeholder to prevent the compile warning
+func (m *Miner) Hello(arg string, _ *struct{}) error {
+	return nil
+}
+
+func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
+	logger.SetPrefix("[SendBlock()]\n")
+	logger.Println("Received Block: ", blockAndHash.BlockHash)
+
+	// TODO:
+	//		Validate Block
+	//		If Valid, add to block chain
+	//		Else return invalid
+
+	// If new block, disseminate
+	if _, exists := m.blockchain[blockAndHash.BlockHash]; !exists {
+		m.blockchain[blockAndHash.BlockHash] = &blockAndHash.Blck
+		// compute longest chain
+		newChain := lengthLongestChain(blockAndHash.BlockHash, m.blockchain)
+		oldChain := lengthLongestChain(m.longestChainLastBlockHash, m.blockchain)
+		if newChain > oldChain {
+			m.longestChainLastBlockHash = blockAndHash.BlockHash
+		}
+		// TODO: Else, reply back with our longest chain to sync up with sender
+
+		//		Disseminate Block to connected Miners
+		for _, minerCon := range m.miners {
+			var isValid bool
+			minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+		}
+	}
+	return nil
+}
+
 // Get the svg string for the shape identified by a given shape hash, if it exists
 func (m *Miner) GetSvgString(hash string, reply *string) error {
 	shape := m.shapes[hash]
@@ -275,6 +331,25 @@ func (m *Miner) GetSvgString(hash string, reply *string) error {
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>
+
+// Counts the length of the block chain given a block hash
+func lengthLongestChain(blockhash string, blockchain map[string]*Block) int {
+	var length int
+	if len(blockhash) < 1 {
+		return length
+	}
+	var currhash = blockhash
+	for {
+		prevBlockHash := blockchain[currhash].PrevHash
+		if _, exists := blockchain[prevBlockHash]; exists {
+			currhash = prevBlockHash
+			length++
+		} else {
+			break
+		}
+	}
+	return length
+}
 
 // Computes the md5 hash of a given byte slice
 func md5Hash(data []byte) string {

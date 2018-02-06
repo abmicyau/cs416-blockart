@@ -55,6 +55,7 @@ type Miner struct {
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
 	shapes                    map[string]*Shape
+	minerAddrs                []string
 }
 
 type Block struct {
@@ -145,6 +146,9 @@ func main() {
 	miner.init()
 	go miner.listenRPC()
 	miner.registerWithServer()
+
+	miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:42309")
+	miner.connectToMiners()
 	for {
 		miner.mineNoOpBlock()
 	}
@@ -156,6 +160,7 @@ func (m *Miner) init() {
 	m.nHashZeroes = uint32(5)
 	m.genesisHash = "01234567890123456789012345678901"
 	m.blockchain = make(map[string]*Block)
+	logger.Println(m.blockchain)
 	if len(args) <= 1 {
 		priv := generateNewKeys()
 		m.privKey = priv
@@ -164,11 +169,13 @@ func (m *Miner) init() {
 }
 
 func (m *Miner) listenRPC() {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:8080")
+	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
 	m.localAddr = *tcpAddr
+
+	logger.Println("Listening on: ", listener.Addr().String())
 
 	miner := new(Miner)
 	rpc.Register(miner)
@@ -187,6 +194,14 @@ func (m *Miner) registerWithServer() {
 	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, &settings)
 	logger.Println(err)
 	logger.Println(settings)
+}
+
+func (m *Miner) connectToMiners() {
+	for _, minerAddr := range m.minerAddrs {
+		minerConn, err := rpc.Dial("tcp", minerAddr)
+		checkError(err)
+		m.miners = append(m.miners, minerConn)
+	}
 }
 
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
@@ -215,6 +230,7 @@ func (m *Miner) mineNoOpBlock() {
 			logger.Println(block, blockHash)
 			m.updateShapes(block)
 			m.blockchain[blockHash] = block
+			logger.Println(m.blockchain)
 			m.longestChainLastBlockHash = blockHash
 			blockAndHash := &BlockAndHash{*block, blockHash}
 			for _, minerCon := range m.miners {
@@ -272,6 +288,7 @@ func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 
 	// If new block, disseminate
 	if _, exists := m.blockchain[blockAndHash.BlockHash]; !exists {
+		logger.Println(m.blockchain)
 		m.blockchain[blockAndHash.BlockHash] = &blockAndHash.Blck
 		// compute longest chain
 		newChain := lengthLongestChain(blockAndHash.BlockHash, m.blockchain)
@@ -285,6 +302,7 @@ func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 			minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
 		}
 	}
+	return nil
 }
 
 // Get the svg string for the shape identified by a given shape hash, if it exists

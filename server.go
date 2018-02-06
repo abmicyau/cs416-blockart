@@ -89,7 +89,7 @@ type MinerNetSettings struct {
 type RServer int
 
 type Miner struct {
-	Address         net.Addr
+	Address         net.TCPAddr
 	RecentHeartbeat int64
 }
 
@@ -158,7 +158,7 @@ func main() {
 }
 
 type MinerInfo struct {
-	Address net.Addr
+	Address net.TCPAddr
 	Key     ecdsa.PublicKey
 }
 
@@ -219,7 +219,7 @@ func (s *RServer) Register(m MinerInfo, r *MinerNetSettings) error {
 	return nil
 }
 
-type Addresses []net.Addr
+type Addresses []net.TCPAddr
 
 func (a Addresses) Len() int           { return len(a) }
 func (a Addresses) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
@@ -229,7 +229,7 @@ func (a Addresses) Less(i, j int) bool { return a[i].String() < a[j].String() }
 //
 // Returns:
 // - UnknownKeyError if the server does not know a miner with this publicKey.
-func (s *RServer) GetNodes(key ecdsa.PublicKey, addrSet *[]net.Addr) error {
+func (s *RServer) GetNodes(key ecdsa.PublicKey, addrSet *[]net.TCPAddr) error {
 
 	// TODO: validate miner's GetNodes protocol? (could monitor state
 	// of network graph/connectivity and validate protocol FSM)
@@ -243,7 +243,7 @@ func (s *RServer) GetNodes(key ecdsa.PublicKey, addrSet *[]net.Addr) error {
 		return unknownKeyError
 	}
 
-	minerAddresses := make([]net.Addr, 0, len(allMiners.all)-1)
+	minerAddresses := make([]net.TCPAddr, 0, len(allMiners.all)-1)
 
 	for pubKey, miner := range allMiners.all {
 		if pubKey == k {

@@ -147,7 +147,7 @@ func main() {
 	go miner.listenRPC()
 	miner.registerWithServer()
 
-	miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:63940") // for manual adding of miners right now
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:63940") // for manual adding of miners right now
 	miner.connectToMiners()
 	for {
 		miner.mineNoOpBlock()

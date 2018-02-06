@@ -24,7 +24,7 @@ import (
 func main() {
 	minerAddr := "127.0.0.1:8080"
 	// TODO: use crypto/ecdsa to read pub/priv keys from a file argument.
-	privKey, err := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
+	privKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if checkError(err) != nil {
 		return
 	}

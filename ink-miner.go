@@ -44,7 +44,7 @@ const (
 
 type Miner struct {
 	logger                    *log.Logger
-	localAddr                 string
+	localAddr                 net.TCPAddr
 	serverAddr                string
 	miners                    []*rpc.Client
 	blockchain                map[string]*Block
@@ -85,6 +85,46 @@ type OperationRecord struct {
 	PubKey ecdsa.PublicKey
 }
 
+// Settings for a canvas in BlockArt.
+type CanvasSettings struct {
+	// Canvas dimensions
+	CanvasXMax uint32 `json:"canvas-x-max"`
+	CanvasYMax uint32 `json:"canvas-y-max"`
+}
+
+type MinerSettings struct {
+	// Hash of the very first (empty) block in the chain.
+	GenesisBlockHash string `json:"genesis-block-hash"`
+
+	// The minimum number of ink miners that an ink miner should be
+	// connected to.
+	MinNumMinerConnections uint8 `json:"min-num-miner-connections"`
+
+	// Mining ink reward per op and no-op blocks (>= 1)
+	InkPerOpBlock   uint32 `json:"ink-per-op-block"`
+	InkPerNoOpBlock uint32 `json:"ink-per-no-op-block"`
+
+	// Number of milliseconds between heartbeat messages to the server.
+	HeartBeat uint32 `json:"heartbeat"`
+
+	// Proof of work difficulty: number of zeroes in prefix (>=0)
+	PoWDifficultyOpBlock   uint8 `json:"pow-difficulty-op-block"`
+	PoWDifficultyNoOpBlock uint8 `json:"pow-difficulty-no-op-block"`
+}
+
+// Settings for an instance of the BlockArt project/network.
+type MinerNetSettings struct {
+	MinerSettings
+
+	// Canvas settings
+	CanvasSettings CanvasSettings `json:"canvas-settings"`
+}
+
+type MinerInfo struct {
+	Address net.TCPAddr
+	Key     ecdsa.PublicKey
+}
+
 // </TYPE DECLARATIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -98,6 +138,7 @@ func main() {
 	miner := new(Miner)
 	miner.init()
 	go miner.listenRPC()
+	miner.registerWithServer()
 	for {
 		miner.mineNoOpBlock()
 	}
@@ -121,6 +162,7 @@ func (m *Miner) listenRPC() {
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
+	m.localAddr = *tcpAddr
 
 	miner := new(Miner)
 	rpc.Register(miner)
@@ -131,6 +173,14 @@ func (m *Miner) listenRPC() {
 		logger.Println("New connection from " + conn.RemoteAddr().String())
 		go rpc.ServeConn(conn)
 	}
+}
+
+func (m *Miner) registerWithServer() {
+	serverConn, err := rpc.Dial("tcp", m.serverAddr)
+	settings := new(MinerNetSettings)
+	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, &settings)
+	logger.Println(err)
+	logger.Println(settings)
 }
 
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
@@ -149,7 +199,7 @@ func (m *Miner) mineNoOpBlock() {
 	}
 
 	for {
-		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), ecdsa.PublicKey{}, nonce}
+		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), m.pubKey, nonce}
 		encodedBlock, err := json.Marshal(block)
 		if err != nil {
 			panic(err)
@@ -227,7 +277,7 @@ func checkError(err error) error {
 }
 
 func generateNewKeys() ecdsa.PrivateKey {
-	c := elliptic.P224()
+	c := elliptic.P521()
 	privKey, err := ecdsa.GenerateKey(c, rand.Reader)
 	checkError(err)
 	return *privKey

@@ -14,6 +14,7 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -134,7 +135,7 @@ var (
 
 func main() {
 	logger = log.New(os.Stdout, "[Initializing]\n", log.Lshortfile)
-
+	gob.Register(&elliptic.CurveParams{})
 	miner := new(Miner)
 	miner.init()
 	go miner.listenRPC()

@@ -13,10 +13,7 @@ import (
 	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/rand"
-<<<<<<< HEAD
 	"encoding/gob"
-=======
->>>>>>> master
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -48,7 +45,7 @@ const (
 
 type Miner struct {
 	logger                    *log.Logger
-	localAddr                 string
+	localAddr                 net.TCPAddr
 	serverAddr                string
 	miners                    []*rpc.Client
 	blockchain                map[string]*Block
@@ -80,7 +77,7 @@ type Shape struct {
 type Operation struct {
 	Type        OpType
 	Shape       Shape
-    ShapeHash   string
+	ShapeHash   string
 	ValidateNum uint8
 }
 
@@ -150,7 +147,7 @@ func main() {
 	go miner.listenRPC()
 	miner.registerWithServer()
 
-	// miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:62704") for manual adding of miners right now
+	miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:63940") // for manual adding of miners right now
 	miner.connectToMiners()
 	for {
 		miner.mineNoOpBlock()
@@ -229,7 +226,7 @@ func (m *Miner) mineNoOpBlock() {
 		blockHash := md5Hash(encodedBlock)
 		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.nHashZeroes))) {
 			logger.Println(block, blockHash)
-            m.updateShapes(block)
+			m.updateShapes(block)
 			m.blockchain[blockHash] = block
 			logger.Println(m.blockchain)
 			m.longestChainLastBlockHash = blockHash

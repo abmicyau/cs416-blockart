@@ -13,6 +13,7 @@ import (
 	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/rand"
+	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -44,7 +45,7 @@ const (
 
 type Miner struct {
 	logger                    *log.Logger
-	localAddr                 string
+	localAddr                 net.TCPAddr
 	serverAddr                string
 	miners                    []*rpc.Client
 	blockchain                map[string]*Block
@@ -54,6 +55,7 @@ type Miner struct {
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
 	shapes                    map[string]*Shape
+	minerAddrs                []string
 }
 
 type Block struct {
@@ -85,6 +87,51 @@ type OperationRecord struct {
 	PubKey ecdsa.PublicKey
 }
 
+// Settings for a canvas in BlockArt.
+type CanvasSettings struct {
+	// Canvas dimensions
+	CanvasXMax uint32 `json:"canvas-x-max"`
+	CanvasYMax uint32 `json:"canvas-y-max"`
+}
+
+type MinerSettings struct {
+	// Hash of the very first (empty) block in the chain.
+	GenesisBlockHash string `json:"genesis-block-hash"`
+
+	// The minimum number of ink miners that an ink miner should be
+	// connected to.
+	MinNumMinerConnections uint8 `json:"min-num-miner-connections"`
+
+	// Mining ink reward per op and no-op blocks (>= 1)
+	InkPerOpBlock   uint32 `json:"ink-per-op-block"`
+	InkPerNoOpBlock uint32 `json:"ink-per-no-op-block"`
+
+	// Number of milliseconds between heartbeat messages to the server.
+	HeartBeat uint32 `json:"heartbeat"`
+
+	// Proof of work difficulty: number of zeroes in prefix (>=0)
+	PoWDifficultyOpBlock   uint8 `json:"pow-difficulty-op-block"`
+	PoWDifficultyNoOpBlock uint8 `json:"pow-difficulty-no-op-block"`
+}
+
+// Settings for an instance of the BlockArt project/network.
+type MinerNetSettings struct {
+	MinerSettings
+
+	// Canvas settings
+	CanvasSettings CanvasSettings `json:"canvas-settings"`
+}
+
+type MinerInfo struct {
+	Address net.TCPAddr
+	Key     ecdsa.PublicKey
+}
+
+type BlockAndHash struct {
+	Blck      Block
+	BlockHash string
+}
+
 // </TYPE DECLARATIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -94,10 +141,14 @@ var (
 
 func main() {
 	logger = log.New(os.Stdout, "[Initializing]\n", log.Lshortfile)
-
+	gob.Register(&elliptic.CurveParams{})
 	miner := new(Miner)
 	miner.init()
 	go miner.listenRPC()
+	miner.registerWithServer()
+
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:53969") // for manual adding of miners right now
+	miner.connectToMiners()
 	for {
 		miner.mineNoOpBlock()
 	}
@@ -117,19 +168,37 @@ func (m *Miner) init() {
 }
 
 func (m *Miner) listenRPC() {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:8080")
+	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
+	m.localAddr = *tcpAddr
 
-	miner := new(Miner)
-	rpc.Register(miner)
+	logger.Println("Listening on: ", listener.Addr().String())
+
+	rpc.Register(m)
 
 	for {
 		conn, err := listener.Accept()
 		checkError(err)
 		logger.Println("New connection from " + conn.RemoteAddr().String())
 		go rpc.ServeConn(conn)
+	}
+}
+
+func (m *Miner) registerWithServer() {
+	serverConn, err := rpc.Dial("tcp", m.serverAddr)
+	settings := new(MinerNetSettings)
+	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, &settings)
+	checkError(err)
+	logger.Println(settings)
+}
+
+func (m *Miner) connectToMiners() {
+	for _, minerAddr := range m.minerAddrs {
+		minerConn, err := rpc.Dial("tcp", minerAddr)
+		checkError(err)
+		m.miners = append(m.miners, minerConn)
 	}
 }
 
@@ -149,7 +218,7 @@ func (m *Miner) mineNoOpBlock() {
 	}
 
 	for {
-		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), ecdsa.PublicKey{}, nonce}
+		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), m.pubKey, nonce}
 		encodedBlock, err := json.Marshal(block)
 		if err != nil {
 			panic(err)
@@ -159,7 +228,13 @@ func (m *Miner) mineNoOpBlock() {
 			logger.Println(block, blockHash)
 			m.updateShapes(block)
 			m.blockchain[blockHash] = block
+			logger.Println(m.blockchain)
 			m.longestChainLastBlockHash = blockHash
+			blockAndHash := &BlockAndHash{*block, blockHash}
+			for _, minerCon := range m.miners {
+				var isValid bool
+				minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+			}
 			return
 		} else {
 			nonce++
@@ -195,6 +270,40 @@ func (m *Miner) updateShapes(block *Block) {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <RPC METHODS>
 
+// Placeholder to prevent the compile warning
+func (m *Miner) Hello(arg string, _ *struct{}) error {
+	return nil
+}
+
+func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
+	logger.SetPrefix("[SendBlock()]\n")
+	logger.Println("Received Block: ", blockAndHash.BlockHash)
+
+	// TODO:
+	//		Validate Block
+	//		If Valid, add to block chain
+	//		Else return invalid
+
+	// If new block, disseminate
+	if _, exists := m.blockchain[blockAndHash.BlockHash]; !exists {
+		m.blockchain[blockAndHash.BlockHash] = &blockAndHash.Blck
+		// compute longest chain
+		newChain := lengthLongestChain(blockAndHash.BlockHash, m.blockchain)
+		oldChain := lengthLongestChain(m.longestChainLastBlockHash, m.blockchain)
+		if newChain > oldChain {
+			m.longestChainLastBlockHash = blockAndHash.BlockHash
+		}
+		// TODO: Else, reply back with our longest chain to sync up with sender
+
+		//		Disseminate Block to connected Miners
+		for _, minerCon := range m.miners {
+			var isValid bool
+			minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+		}
+	}
+	return nil
+}
+
 // Get the svg string for the shape identified by a given shape hash, if it exists
 func (m *Miner) GetSvgString(hash string, reply *string) error {
 	shape := m.shapes[hash]
@@ -209,6 +318,25 @@ func (m *Miner) GetSvgString(hash string, reply *string) error {
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>
+
+// Counts the length of the block chain given a block hash
+func lengthLongestChain(blockhash string, blockchain map[string]*Block) int {
+	var length int
+	if len(blockhash) < 1 {
+		return length
+	}
+	var currhash = blockhash
+	for {
+		prevBlockHash := blockchain[currhash].PrevHash
+		if _, exists := blockchain[prevBlockHash]; exists {
+			currhash = prevBlockHash
+			length++
+		} else {
+			break
+		}
+	}
+	return length
+}
 
 // Computes the md5 hash of a given byte slice
 func md5Hash(data []byte) string {
@@ -227,7 +355,7 @@ func checkError(err error) error {
 }
 
 func generateNewKeys() ecdsa.PrivateKey {
-	c := elliptic.P224()
+	c := elliptic.P521()
 	privKey, err := ecdsa.GenerateKey(c, rand.Reader)
 	checkError(err)
 	return *privKey

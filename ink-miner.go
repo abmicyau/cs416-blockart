@@ -9,140 +9,229 @@ go run ink-miner.go [server ip:port] [pubKey] [privKey]
 package main
 
 import (
-  "log"
-  "net"
-  "net/rpc"
-  "os"
-  "crypto/md5"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/md5"
+	"crypto/rand"
 	"encoding/hex"
-  "encoding/json"
-  "strings"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"net/rpc"
+	"os"
+	"strings"
 )
 
-const genesisHash = "01234567890123456789012345678901"
+////////////////////////////////////////////////////////////////////////////////////////////
+// <TYPE DECLARATIONS>
 
-type Operation struct {
-  op string
-}
+// Represents a type of shape in the BlockArt system.
+type ShapeType int
 
-type OperationRecord struct {
-  Op     Operation
-  OpSig  string
-  PubKey string
+const (
+	// Path shape.
+	PATH ShapeType = iota
+)
+
+// Represents the type of operation for a shape on the canvas
+type OpType int
+
+const (
+	ADD OpType = iota
+	REMOVE
+)
+
+type Miner struct {
+	logger                    *log.Logger
+	localAddr                 string
+	serverAddr                string
+	miners                    []*rpc.Client
+	blockchain                map[string]*Block
+	longestChainLastBlockHash string
+	genesisHash               string
+	nHashZeroes               uint32
+	pubKey                    ecdsa.PublicKey
+	privKey                   ecdsa.PrivateKey
+	shapes                    map[string]*Shape
 }
 
 type Block struct {
-  BlockNo  uint32
-  PrevHash string
-  Records  []OperationRecord
-  PubKey   string
-  Nonce    uint32
+	BlockNo  uint32
+	PrevHash string
+	Records  []OperationRecord
+	PubKey   ecdsa.PublicKey
+	Nonce    uint32
 }
 
+type Shape struct {
+	ShapeType      ShapeType
+	ShapeSvgString string
+	Fill           string
+	Stroke         string
+	Owner          ecdsa.PublicKey
+}
+
+type Operation struct {
+	Type        OpType
+	Shape       Shape
+	ShapeHash   string
+	ValidateNum uint8
+}
+
+type OperationRecord struct {
+	Op     Operation
+	OpSig  string
+	PubKey ecdsa.PublicKey
+}
+
+// </TYPE DECLARATIONS>
+////////////////////////////////////////////////////////////////////////////////////////////
+
 var (
-  logger *log.Logger
-  localAddr string
-  serverAddr string
-  miners []*rpc.Client // will probably change this to an array of Miner structs, just using connection for now
-  blockchain map[string]*Block = make(map[string]*Block)
-  longestChainLastBlockHash string
-  nHashZeroes uint32
-  // minerAddrs []string
-  // pubKey
-  // privKey
+	logger *log.Logger
 )
 
 func main() {
-  Init()
-  ListenForMiners(EstablishLocalListener())
-  for {
-    MineNoOpBlock(nHashZeroes)
-  }
-  // ConnectToServer(localAddr, serverAddr)
-  // Server.Call("<listener>.GetNodes", pubKey, &minerAddrs)
-  // ConnectToMiners(minerAddrs)
+	logger = log.New(os.Stdout, "[Initializing]\n", log.Lshortfile)
+
+	miner := new(Miner)
+	miner.init()
+	go miner.listenRPC()
+	for {
+		miner.mineNoOpBlock()
+	}
 }
 
-// Initializes the logger, args, and other global variables that will be used
-func Init() {
-  logger = log.New(os.Stdout, "[Initializing]\n", log.Lshortfile)
-  args := os.Args[1:]
-  serverAddr = args[0]
-  nHashZeroes = uint32(5)
-  // pubKey = args[1]
-  // privKey = args[2]
+func (m *Miner) init() {
+	args := os.Args[1:]
+	m.serverAddr = args[0]
+	m.nHashZeroes = uint32(5)
+	m.genesisHash = "01234567890123456789012345678901"
+	m.blockchain = make(map[string]*Block)
+	if len(args) <= 1 {
+		priv := generateNewKeys()
+		m.privKey = priv
+		m.pubKey = priv.PublicKey
+	}
 }
 
-// Establishes the server that will listen for incoming connections from other miners
-func EstablishLocalListener() net.Listener {
-  conn, err := net.Listen("tcp", "127.0.0.1:0")
-  if err != nil {
-    // STUB - don't necessarily have to handle this with panic
-    panic(err)
-  }
-  localAddr = conn.Addr().String()
-  return conn
+func (m *Miner) listenRPC() {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:8080")
+	checkError(err)
+	listener, err := net.ListenTCP("tcp", tcpAddr)
+	checkError(err)
+
+	miner := new(Miner)
+	rpc.Register(miner)
+
+	for {
+		conn, err := listener.Accept()
+		checkError(err)
+		logger.Println("New connection from " + conn.RemoteAddr().String())
+		go rpc.ServeConn(conn)
+	}
 }
-
-// Listens for incoming connections from other miners
-func ListenForMiners(conn net.Listener) {
-  rpc.Register(conn)
-  go rpc.Accept(conn)
-}
-
-// func ConnectToMiners(minerAddrs []string) {
-//   for _, minerAddr := range minerAddrs {
-//     minerConn, err := rpc.Dial("tcp", minerAddr)
-//     check(err)
-//     miners = append(miners, minerConn)
-//   }
-// }
-
-// // Establishes connection and registers ink miner to the main server
-// func ConnectToServer(localAddr, serverAddr string) {
-//   serverConn, err := rpc.Dial("tcp", serverAddr)
-//   check(err)
-//   serverConn.Call("<listener>.Register", localAddr, &<settings>)
-// }
 
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
 // If successful, block is appended to the longestChainLastBlockHashin the blockchain map
-func MineNoOpBlock(nHashZeroes uint32) {
-  var nonce uint32 = 0
-  var prevHash string
-  var blockNo uint32
+func (m *Miner) mineNoOpBlock() {
+	var nonce uint32 = 0
+	var prevHash string
+	var blockNo uint32
 
-  if longestChainLastBlockHash == "" {
-    prevHash = genesisHash
-    blockNo = 0
-  } else {
-    prevHash = longestChainLastBlockHash
-    blockNo = blockchain[prevHash].BlockNo + 1
-  }
+	if m.longestChainLastBlockHash == "" {
+		prevHash = m.genesisHash
+		blockNo = 0
+	} else {
+		prevHash = m.longestChainLastBlockHash
+		blockNo = m.blockchain[prevHash].BlockNo + 1
+	}
 
-  for {
-    block := &Block{blockNo, prevHash, make([]OperationRecord, 0), "<pubKey>", nonce}
-    encodedBlock, err := json.Marshal(block)
-    if err != nil {
-      panic(err)
-    }
-    blockHash := computeBlockHash(encodedBlock)
-    if strings.HasSuffix(blockHash, strings.Repeat("0", int(nHashZeroes))) {
-      logger.Println(block, blockHash)
-      blockchain[blockHash] = block
-      longestChainLastBlockHash = blockHash
-      return
-    } else {
-      nonce++
-    }
-  }
+	for {
+		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), ecdsa.PublicKey{}, nonce}
+		encodedBlock, err := json.Marshal(block)
+		if err != nil {
+			panic(err)
+		}
+		blockHash := md5Hash(encodedBlock)
+		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.nHashZeroes))) {
+			logger.Println(block, blockHash)
+			m.updateShapes(block)
+			m.blockchain[blockHash] = block
+			m.longestChainLastBlockHash = blockHash
+			return
+		} else {
+			nonce++
+		}
+	}
 }
 
-// Computes the hash of the given block
-func computeBlockHash(block []byte) string {
+// Updates the miner's shape collection for a newly mined block.
+// AddShape operations add a shape to the collection and DeleteShape
+// operations remove them.
+//
+// Assumption: an ADD and REMOVE operation for the same shape will
+// not exist in the same block.
+//
+// TODO: Remember that any time we switch blockchains (for example,
+// the if current one is outrun), we must reverse all operations up
+// to the most recent ancestor and re-apply the updated shapes in
+// the new chain. We must also remember to re-create the shape
+// collection if the miner newly joins the network, or upon recovery
+// from a disconnection/failure.
+//
+func (m *Miner) updateShapes(block *Block) {
+	for _, record := range block.Records {
+		op := record.Op
+		if op.Type == ADD {
+			m.shapes[op.ShapeHash] = &op.Shape
+		} else {
+			delete(m.shapes, op.ShapeHash)
+		}
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <RPC METHODS>
+
+// Get the svg string for the shape identified by a given shape hash, if it exists
+func (m *Miner) GetSvgString(hash string, reply *string) error {
+	shape := m.shapes[hash]
+	if shape != nil {
+		*reply = shape.ShapeSvgString
+	}
+	return nil
+}
+
+// </RPC METHODS>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <HELPER METHODS>
+
+// Computes the md5 hash of a given byte slice
+func md5Hash(data []byte) string {
 	h := md5.New()
-	value := []byte(block)
-	h.Write(value)
+	h.Write(data)
 	str := hex.EncodeToString(h.Sum(nil))
 	return str
 }
+
+func checkError(err error) error {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return err
+	}
+	return nil
+}
+
+func generateNewKeys() ecdsa.PrivateKey {
+	c := elliptic.P224()
+	privKey, err := ecdsa.GenerateKey(c, rand.Reader)
+	checkError(err)
+	return *privKey
+}
+
+// </HELPER METHODS>
+////////////////////////////////////////////////////////////////////////////////////////////

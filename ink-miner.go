@@ -13,7 +13,10 @@ import (
 	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/rand"
+<<<<<<< HEAD
 	"encoding/gob"
+=======
+>>>>>>> master
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -45,7 +48,7 @@ const (
 
 type Miner struct {
 	logger                    *log.Logger
-	localAddr                 net.TCPAddr
+	localAddr                 string
 	serverAddr                string
 	miners                    []*rpc.Client
 	blockchain                map[string]*Block
@@ -77,7 +80,7 @@ type Shape struct {
 type Operation struct {
 	Type        OpType
 	Shape       Shape
-	ShapeHash   string
+    ShapeHash   string
 	ValidateNum uint8
 }
 
@@ -160,7 +163,6 @@ func (m *Miner) init() {
 	m.nHashZeroes = uint32(5)
 	m.genesisHash = "01234567890123456789012345678901"
 	m.blockchain = make(map[string]*Block)
-	logger.Println(m.blockchain)
 	if len(args) <= 1 {
 		priv := generateNewKeys()
 		m.privKey = priv
@@ -227,7 +229,7 @@ func (m *Miner) mineNoOpBlock() {
 		blockHash := md5Hash(encodedBlock)
 		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.nHashZeroes))) {
 			logger.Println(block, blockHash)
-			m.updateShapes(block)
+            m.updateShapes(block)
 			m.blockchain[blockHash] = block
 			logger.Println(m.blockchain)
 			m.longestChainLastBlockHash = blockHash

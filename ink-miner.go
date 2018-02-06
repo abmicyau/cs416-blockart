@@ -44,6 +44,9 @@ const (
 	REMOVE
 )
 
+// Used to send heartbeat to the server just shy of 1 second each beat
+const TIME_BUFFER uint32 = 10
+
 type Miner struct {
 	logger                    *log.Logger
 	localAddr                 net.TCPAddr
@@ -158,8 +161,6 @@ func main() {
 func (m *Miner) init() {
 	args := os.Args[1:]
 	m.serverAddr = args[0]
-	m.nHashZeroes = uint32(5)
-	m.genesisHash = "01234567890123456789012345678901"
 	m.blockchain = make(map[string]*Block)
 	if len(args) <= 1 {
 		priv := generateNewKeys()
@@ -194,7 +195,7 @@ func (m *Miner) registerWithServer() {
 	m.serverConn = serverConn
 	m.settings = settings.MinerSettings
 	go m.startHeartBeats()
-	logger.Println(err)
+	checkError(err)
 	logger.Println(settings)
 }
 
@@ -202,7 +203,7 @@ func (m *Miner) startHeartBeats() {
 	var ignored bool
 	m.serverConn.Call("RServer.HeartBeat", m.pubKey, &ignored)
 	for {
-		time.Sleep(time.Duration(m.settings.HeartBeat)*time.Millisecond - time.Millisecond)
+		time.Sleep(time.Duration(m.settings.HeartBeat - TIME_BUFFER)*time.Millisecond)
 		m.serverConn.Call("RServer.HeartBeat", m.pubKey, &ignored)
 	}
 }
@@ -223,7 +224,7 @@ func (m *Miner) mineNoOpBlock() {
 	var blockNo uint32
 
 	if m.longestChainLastBlockHash == "" {
-		prevHash = m.genesisHash
+		prevHash = m.settings.GenesisBlockHash
 		blockNo = 0
 	} else {
 		prevHash = m.longestChainLastBlockHash
@@ -237,7 +238,7 @@ func (m *Miner) mineNoOpBlock() {
 			panic(err)
 		}
 		blockHash := md5Hash(encodedBlock)
-		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.nHashZeroes))) {
+		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) {
 			logger.Println(block, blockHash)
 			m.updateShapes(block)
 			m.blockchain[blockHash] = block

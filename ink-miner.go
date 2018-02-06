@@ -147,7 +147,7 @@ func main() {
 	go miner.listenRPC()
 	miner.registerWithServer()
 
-	miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:42309")
+	// miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:62704") for manual adding of miners right now
 	miner.connectToMiners()
 	for {
 		miner.mineNoOpBlock()
@@ -177,8 +177,7 @@ func (m *Miner) listenRPC() {
 
 	logger.Println("Listening on: ", listener.Addr().String())
 
-	miner := new(Miner)
-	rpc.Register(miner)
+	rpc.Register(m)
 
 	for {
 		conn, err := listener.Accept()

@@ -13,8 +13,8 @@ import (
 	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/rand"
-	"encoding/hex"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -22,6 +22,7 @@ import (
 	"net/rpc"
 	"os"
 	"strings"
+	"time"
 )
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -47,6 +48,7 @@ type Miner struct {
 	logger                    *log.Logger
 	localAddr                 net.TCPAddr
 	serverAddr                string
+	serverConn                *rpc.Client
 	miners                    []*rpc.Client
 	blockchain                map[string]*Block
 	longestChainLastBlockHash string
@@ -54,7 +56,8 @@ type Miner struct {
 	nHashZeroes               uint32
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
-    shapes                    map[string]*Shape
+	shapes                    map[string]*Shape
+	settings                  MinerSettings
 }
 
 type Block struct {
@@ -76,7 +79,7 @@ type Shape struct {
 type Operation struct {
 	Type        OpType
 	Shape       Shape
-    ShapeHash   string
+	ShapeHash   string
 	ValidateNum uint8
 }
 
@@ -180,8 +183,20 @@ func (m *Miner) registerWithServer() {
 	serverConn, err := rpc.Dial("tcp", m.serverAddr)
 	settings := new(MinerNetSettings)
 	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, &settings)
+	m.serverConn = serverConn
+	m.settings = settings.MinerSettings
+	go m.startHeartBeats()
 	logger.Println(err)
 	logger.Println(settings)
+}
+
+func (m *Miner) startHeartBeats() {
+	var ignored bool
+	m.serverConn.Call("RServer.HeartBeat", m.pubKey, &ignored)
+	for {
+		time.Sleep(time.Duration(m.settings.HeartBeat)*time.Millisecond - time.Millisecond)
+		m.serverConn.Call("RServer.HeartBeat", m.pubKey, &ignored)
+	}
 }
 
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
@@ -208,7 +223,7 @@ func (m *Miner) mineNoOpBlock() {
 		blockHash := md5Hash(encodedBlock)
 		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.nHashZeroes))) {
 			logger.Println(block, blockHash)
-            m.updateShapes(block)
+			m.updateShapes(block)
 			m.blockchain[blockHash] = block
 			m.longestChainLastBlockHash = blockHash
 			return
@@ -233,14 +248,14 @@ func (m *Miner) mineNoOpBlock() {
 // from a disconnection/failure.
 //
 func (m *Miner) updateShapes(block *Block) {
-    for _, record := range block.Records {
-        op := record.Op
-        if op.Type == ADD {
-            m.shapes[op.ShapeHash] = &op.Shape
-        } else {
-            delete(m.shapes, op.ShapeHash)
-        }
-    }
+	for _, record := range block.Records {
+		op := record.Op
+		if op.Type == ADD {
+			m.shapes[op.ShapeHash] = &op.Shape
+		} else {
+			delete(m.shapes, op.ShapeHash)
+		}
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -248,10 +263,10 @@ func (m *Miner) updateShapes(block *Block) {
 
 // Get the svg string for the shape identified by a given shape hash, if it exists
 func (m *Miner) GetSvgString(hash string, reply *string) error {
-    shape := m.shapes[hash]
-    if shape != nil {
-        *reply = shape.ShapeSvgString
-    }
+	shape := m.shapes[hash]
+	if shape != nil {
+		*reply = shape.ShapeSvgString
+	}
 	return nil
 }
 

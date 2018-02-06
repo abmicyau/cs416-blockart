@@ -30,10 +30,12 @@ func main() {
 	}
 
 	// Open a canvas.
-	_, _, err = blockartlib.OpenCanvas(minerAddr, *privKey)
+	canvas, _, err := blockartlib.OpenCanvas(minerAddr, *privKey)
 	if checkError(err) != nil {
 		return
 	}
+
+	_, _ = canvas.GetShapes("")
 
  	// validateNum := 2
 

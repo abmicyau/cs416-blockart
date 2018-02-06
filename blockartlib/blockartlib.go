@@ -10,9 +10,7 @@ package blockartlib
 import (
 	"fmt"
 	"crypto/ecdsa"
-	"crypto/md5"
-	"encoding/hex"
-	"encoding/json"
+	"crypto/rand"
 	"net/rpc"
 	"os"
 )
@@ -34,17 +32,30 @@ const (
 	REMOVE
 )
 
-// Represents error codes for miner-side shape validation
-type ShapeError int
+// Represents error codes for requests to an ink miner
+type MinerResponseError int
 const (
-	NO_ERROR ShapeError = iota
+	NO_ERROR MinerResponseError = iota
+	INVALID_SIGNATURE
+	INVALID_TOKEN
 	INSUFFICIENT_INK
 	INVALID_SHAPE_SVG_STRING
 	SHAPE_SVG_STRING_TOO_LONG
 	SHAPE_OVERLAP
 	OUT_OF_BOUNDS
+	INVALID_SHAPE_HASH
+	INVALID_BLOCK_HASH
 )
 
+type MinerResponse struct {
+	Error   MinerResponseError
+	Payload []interface{}
+}
+
+type ArtnodeRequest struct {
+	Token   string
+	Payload []interface{}
+}
 
 // Settings for a canvas in BlockArt.
 type CanvasSettings struct {
@@ -133,37 +144,7 @@ type Canvas interface {
 type CanvasInstance struct {
 	MinerAddr string
 	Miner     *rpc.Client
-	PrivKey   ecdsa.PrivateKey
-	Settings  CanvasSettings
-	Shapes    map[string]Shape
-}
-
-type Shape struct {
-	ShapeType      ShapeType
-	ShapeSvgString string
-	Fill           string
-	Stroke         string
-	Owner          ecdsa.PublicKey
-}
-
-type Operation struct {
-	Type        OpType
-	Shape       Shape
-	ValidateNum uint8
-}
-
-type OperationRecord struct {
-	Op     Operation
-	OpSig  string
-	PubKey ecdsa.PublicKey
-}
-
-type Block struct {
-	BlockNo  uint32
-	PrevHash string
-	Records  []OperationRecord
-	PubKey   ecdsa.PublicKey
-	Nonce    uint32
+	Token     string
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -254,26 +235,49 @@ func (e InvalidBlockHashError) Error() string {
 // The returned Canvas instance is a singleton: an application is
 // expected to interact with just one Canvas instance at a time.
 //
+// The art node will undergo the following registration/verification
+// protocol with the ink miner:
+//
+// 1. ArtNode -> InkMiner  Hello
+// 2. InkMiner -> ArtNode  Nonce
+// 3. ArtNode -> Inkminer  Sign(Nonce)
+// 4. InkMiner -> ArtNode  Token, CanvasSettings
+//
+// The returned token (if registration is successful) must be included
+// in all future API calls.
+//
 // Can return the following errors:
 // - DisconnectedError
 func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, setting CanvasSettings, err error) {
+	// Greet the miner and retrieve a nonce
 	miner, err := rpc.Dial("tcp", minerAddr)
-
-	if err != nil {
+	if checkError(err) != nil {
+		return CanvasInstance{}, CanvasSettings{}, DisconnectedError(minerAddr)
+	}
+	var nonce string
+	err = miner.Call("Miner.Hello", "", &nonce)
+	if checkError(err) != nil {
 		return CanvasInstance{}, CanvasSettings{}, DisconnectedError(minerAddr)
 	}
 
-	canvas = CanvasInstance{minerAddr, miner, privKey, setting, make(map[string]Shape)}
+	// Sign the nonce and form a token request
+	r, s, err := ecdsa.Sign(rand.Reader, &privKey, []byte(nonce))
+	checkError(err)
+	request := new(ArtnodeRequest)
+	request.Payload = make([]interface{}, 3)
+    request.Payload[0] = nonce
+    request.Payload[1] = r.String()
+    request.Payload[2] = s.String()
 
-	// Need to initiate some kind of verification with the miner
-	// Idea: (since we can't just send the private key of course)
-	//       app -> miner    greeting
-	//       miner -> app    nonce
-	//       app -> miner    signed nonce (w/ private key)
-	//       miner -> app    ok
-
-	// TODO: fetch from server
-	setting = CanvasSettings{}
+    // Request token and canvas settings from the miner
+    response := new(MinerResponse)
+    err = miner.Call("Miner.GetToken", request, response)
+	if checkError(err) != nil || response.Error == INVALID_SIGNATURE {
+		return CanvasInstance{}, CanvasSettings{}, DisconnectedError(minerAddr)
+	}
+	token := response.Payload[0].(string)
+	setting = response.Payload[1].(CanvasSettings)
+	canvas = CanvasInstance{minerAddr, miner, token}
 
 	return canvas, setting, nil
 }
@@ -287,42 +291,7 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 // - ShapeOverlapError
 // - OutOfBoundsError
 func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSvgString string, fill string, stroke string) (shapeHash string, blockHash string, inkRemaining uint32, err error) {
-	shape := Shape{shapeType, shapeSvgString, fill, stroke, c.PrivKey.PublicKey}
-	shapeHash = shape.hash()
-
-	blockHash = ""
-	inkRemaining = 0
-
-	// TODO: Check for disconnection
-
-	// Validation steps
-	//
-	// OPTION 1: Do each step separately, some relying on the miner and others
-	//           using only private methods
-	//
-	// TODO: Check for sufficient ink (InsufficientInkError)
-	//       -> Request updated ink count from the miner, then do the calculation
-	// TODO: Validate the shape produced by the svg string
-	//       -> Private method
-	// TODO: Validate the length of the svg string
-	//       -> Private method
-	// TODO: Check if the shape overlaps with existing shapes
-	//       -> Send the shape to the miner, since the overlap detection
-	//          logic should be on the miner (since it will be continuously
-	//          checking overlaps for other miners' shapes)
-	// TODO: Check that the shape is within bounds
-	//       -> Could do this locally with a private method, but could also send
-	//          the shape to the miner since it should also have that logic for
-	//          validating other miners' shapes
-	//
-	//
-	// OPTION 2: Send the shape to the miner and have it perform all the validation
-	//
-	// TODO: Send the shape to the miner and prepare a response object to detect
-	//       the appropriate error
-	//
-	// We'll probably go with option 2 and use the ShapeError type to interpret the error
-
+	// TODO
 	return shapeHash, blockHash, inkRemaining, nil
 }
 
@@ -330,16 +299,24 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 // Can return the following errors:
 // - DisconnectedError
 // - InvalidShapeHashError
+//
+// TODO: Testing
+//
 func (c CanvasInstance) GetSvgString(shapeHash string) (svgString string, err error) {
-	err = c.Miner.Call("Miner.GetSvgString", shapeHash, &svgString)
-	if checkError(err) != nil {
-		return "", DisconnectedError(c.MinerAddr)
-	}
+	request := new(ArtnodeRequest)
+	request.Token = c.Token
+	request.Payload = make([]interface{}, 1)
+	request.Payload[0] = shapeHash
+	response := new(MinerResponse)
 
-	// We can interpret an empty svg string to mean an invalid shape hash
-	if len(svgString) == 0 {
+	err = c.Miner.Call("Miner.GetSvgString", request, response)
+	if checkError(err) != nil || response.Error == INVALID_TOKEN {
+		return "", DisconnectedError(c.MinerAddr)
+	} else if response.Error == INVALID_SHAPE_HASH {
 		return "", InvalidShapeHashError(shapeHash)
 	}
+
+	svgString = response.Payload[0].(string)
 
 	return svgString, nil
 }
@@ -347,9 +324,22 @@ func (c CanvasInstance) GetSvgString(shapeHash string) (svgString string, err er
 // Returns the amount of ink currently available.
 // Can return the following errors:
 // - DisconnectedError
+//
+// TODO: Testing
+//
 func (c CanvasInstance) GetInk() (inkRemaining uint32, err error) {
-	// TODO
-	return 0, nil
+	request := new(ArtnodeRequest)
+	request.Token = c.Token
+	response := new(MinerResponse)
+
+	err = c.Miner.Call("Miner.GetInk", request, response)
+	if checkError(err) != nil || response.Error == INVALID_TOKEN {
+		return 0, DisconnectedError(c.MinerAddr)
+	}
+
+	inkRemaining = response.Payload[0].(uint32)
+
+	return inkRemaining, nil
 }
 
 // Removes a shape from the canvas.
@@ -365,17 +355,51 @@ func (c CanvasInstance) DeleteShape(validateNum uint8, shapeHash string) (inkRem
 // Can return the following errors:
 // - DisconnectedError
 // - InvalidBlockHashError
+//
+// For now, assume that this call returns all shapes (both add and delete operations)
+// No duplicates, because add and remove operations for the same shape can't be in
+// the same block.
+//
+// TODO: Double check these semantics.
+//
 func (c CanvasInstance) GetShapes(blockHash string) (shapeHashes []string, err error) {
-	// TODO
-	return make([]string, 0), nil
+	request := new(ArtnodeRequest)
+	request.Token = c.Token
+	request.Payload = make([]interface{}, 1)
+	request.Payload[0] = blockHash
+	response := new(MinerResponse)
+
+	err = c.Miner.Call("Miner.GetShapes", request, response)
+	if checkError(err) != nil || response.Error == INVALID_TOKEN {
+		return []string{}, DisconnectedError(c.MinerAddr)
+	} else if response.Error == INVALID_BLOCK_HASH {
+		return []string{}, InvalidBlockHashError(blockHash)
+	}
+
+	shapeHashes = response.Payload[0].([]string)
+
+	return shapeHashes, nil
 }
 
 // Returns the block hash of the genesis block.
 // Can return the following errors:
 // - DisconnectedError
+//
+// TODO: Testing
+//
 func (c CanvasInstance) GetGenesisBlock() (blockHash string, err error) {
-	// TODO
-	return "", nil
+	request := new(ArtnodeRequest)
+	request.Token = c.Token
+	response := new(MinerResponse)
+
+	err = c.Miner.Call("Miner.GetGenesisBlock", request, response)
+	if checkError(err) != nil || response.Error == INVALID_TOKEN {
+		return "", DisconnectedError(c.MinerAddr)
+	}
+
+	blockHash = response.Payload[0].(string)
+
+	return blockHash, nil
 }
 
 // Retrieves the children blocks of the block identified by blockHash.
@@ -399,23 +423,6 @@ func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <PRIVATE METHODS>
-
-func (c CanvasInstance) hasOverlappingShape(shape Shape) bool {
-	// check overlap against shapes in c.shapes which are not owned by this app
-	return false
-}
-
-func (s Shape) hash() string {
-	encodedShape, err := json.Marshal(s)
-	if checkError(err) != nil {
-		return ""
-	}
-
-	h := md5.New()
-	h.Write(encodedShape)
-
-	return hex.EncodeToString(h.Sum(nil))
-}
 
 func checkError(err error) error {
 	if err != nil {

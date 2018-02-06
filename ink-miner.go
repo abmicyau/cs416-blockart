@@ -72,6 +72,11 @@ type OperationRecord struct {
 	PubKey string
 }
 
+type BlockAndHash struct {
+	Blck      Block
+	BlockHash string
+}
+
 // </TYPE DECLARATIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -141,7 +146,11 @@ func (m *Miner) mineNoOpBlock() {
 			logger.Println(block, blockHash)
 			m.blockchain[blockHash] = block
 			m.longestChainLastBlockHash = blockHash
-			disseminateBlock(blockHash)
+			blockAndHash := &BlockAndHash{*block, blockHash}
+			for _, minerCon := range m.miners {
+				var isValid bool
+				minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+			}
 			return
 		} else {
 			nonce++
@@ -157,21 +166,28 @@ func (m *Miner) Hello(arg string, _ *struct{}) error {
 	return nil
 }
 
-func (t *Miner) SendBlock(blockHash string, isValid *bool) error {
+func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 	logger.SetPrefix("[SendBlock()]\n")
-	logger.Println("Received Block: ", block)
+	logger.Println("Received Block: ", blockAndHash.BlockHash)
+
 	// TODO:
 	//		Validate Block
 	//		If Valid, add to block chain
 	//		Else return invalid
 
 	// If new block, disseminate
-	if _, exists := m.blockchain[blockHash] !exists {
-		m.blockchain[blockHash] = t.blockchain[blockHash]
+	if _, exists := m.blockchain[blockAndHash.BlockHash]; !exists {
+		m.blockchain[blockAndHash.BlockHash] = &blockAndHash.Blck
+		// compute longest chain
+		newChain := lengthLongestChain(blockAndHash.BlockHash, m.blockchain)
+		oldChain := lengthLongestChain(m.longestChainLastBlockHash, m.blockchain)
+		if newChain > oldChain {
+			m.longestChainLastBlockHash = blockAndHash.BlockHash
+		}
 		//		Disseminate Block to connected Miners
-		for _, minerCon := range miners {
+		for _, minerCon := range m.miners {
 			var isValid bool
-			minerCon.Call("Miner.SendBlock", blockHash, &isValid)
+			minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
 		}
 	}
 	return nil
@@ -183,6 +199,22 @@ func (t *Miner) SendBlock(blockHash string, isValid *bool) error {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>
 
+// Counts the length of the block chain given a block hash
+func lengthLongestChain(blockhash string, blockchain map[string]*Block) int {
+	var length int
+	var currhash = blockhash
+	for {
+		prevBlockHash := blockchain[currhash].PrevHash
+		if _, exists := blockchain[prevBlockHash]; exists {
+			currhash = prevBlockHash
+			length++
+		} else {
+			break
+		}
+	}
+	return length
+}
+
 // Computes the hash of the given block
 func computeBlockHash(block []byte) string {
 	h := md5.New()
@@ -190,13 +222,6 @@ func computeBlockHash(block []byte) string {
 	h.Write(value)
 	str := hex.EncodeToString(h.Sum(nil))
 	return str
-}
-
-func disseminateBlock(blockHash string) {
-	for _, minerCon := range miners {
-		var isValid bool
-		minerCon.Call("Miner.SendBlock", blockHash, &isValid)
-	}
 }
 
 func checkError(err error) error {

@@ -8,17 +8,13 @@ library (blockartlib) to be used in project 1 of UBC CS 416 2017W2.
 package blockartlib
 
 import (
-	"fmt"
 	"crypto/ecdsa"
-	"crypto/md5"
-	"encoding/hex"
-	"encoding/json"
-	"net/rpc"
-	"os"
+	"fmt"
 )
 
 // Represents a type of shape in the BlockArt system.
 type ShapeType int
+
 const (
 	// Path shape.
 	PATH ShapeType = iota
@@ -26,25 +22,6 @@ const (
 	// Circle shape (extra credit).
 	// CIRCLE
 )
-
-// Represents the type of operation for a shape on the canvas
-type OpType int
-const (
-	ADD OpType = iota
-	REMOVE
-)
-
-// Represents error codes for miner-side shape validation
-type ShapeError int
-const (
-	NO_ERROR ShapeError = iota
-	INSUFFICIENT_INK
-	INVALID_SHAPE_SVG_STRING
-	SHAPE_SVG_STRING_TOO_LONG
-	SHAPE_OVERLAP
-	OUT_OF_BOUNDS
-)
-
 
 // Settings for a canvas in BlockArt.
 type CanvasSettings struct {
@@ -131,39 +108,23 @@ type Canvas interface {
 }
 
 type CanvasInstance struct {
-	MinerAddr string
-	Miner     *rpc.Client
-	PrivKey   ecdsa.PrivateKey
-	Settings  CanvasSettings
-	Shapes    map[string]Shape
+	minerAddr string
+	privKey   ecdsa.PrivateKey
+	settings  CanvasSettings
+	shapes    map[string]Shape
 }
 
 type Shape struct {
-	ShapeType      ShapeType
-	ShapeSvgString string
-	Fill           string
-	Stroke         string
-	Owner          ecdsa.PublicKey
-}
+	shapeType      ShapeType
+	shapeSvgString string
+	fill           string
+	stroke         string
+	owner          ecdsa.PublicKey
 
-type Operation struct {
-	Type        OpType
-	Shape       Shape
-	ValidateNum uint8
-}
-
-type OperationRecord struct {
-	Op     Operation
-	OpSig  string
-	PubKey ecdsa.PublicKey
-}
-
-type Block struct {
-	BlockNo  uint32
-	PrevHash string
-	Records  []OperationRecord
-	PubKey   ecdsa.PublicKey
-	Nonce    uint32
+	commands []Command
+	vertices []Point
+	min      Point
+	max      Point
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -257,23 +218,8 @@ func (e InvalidBlockHashError) Error() string {
 // Can return the following errors:
 // - DisconnectedError
 func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, setting CanvasSettings, err error) {
-	miner, err := rpc.Dial("tcp", minerAddr)
-
-	if err != nil {
-		return CanvasInstance{}, CanvasSettings{}, DisconnectedError(minerAddr)
-	}
-
-	canvas = CanvasInstance{minerAddr, miner, privKey, setting, make(map[string]Shape)}
-
-	// Need to initiate some kind of verification with the miner
-	// Idea: (since we can't just send the private key of course)
-	//       app -> miner    greeting
-	//       miner -> app    nonce
-	//       app -> miner    signed nonce (w/ private key)
-	//       miner -> app    ok
-
-	// TODO: fetch from server
-	setting = CanvasSettings{}
+	setting = CanvasSettings{} // TODO: fetch from server
+	canvas = CanvasInstance{minerAddr, privKey, setting, make(map[string]Shape)}
 
 	return canvas, setting, nil
 }
@@ -287,41 +233,20 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 // - ShapeOverlapError
 // - OutOfBoundsError
 func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSvgString string, fill string, stroke string) (shapeHash string, blockHash string, inkRemaining uint32, err error) {
-	shape := Shape{shapeType, shapeSvgString, fill, stroke, c.PrivKey.PublicKey}
+	shape := Shape{
+		fill:           fill,
+		stroke:         stroke,
+		shapeType:      shapeType,
+		shapeSvgString: shapeSvgString,
+		owner:          c.privKey.PublicKey}
 	shapeHash = shape.hash()
 
 	blockHash = ""
 	inkRemaining = 0
 
-	// TODO: Check for disconnection
-
-	// Validation steps
-	//
-	// OPTION 1: Do each step separately, some relying on the miner and others
-	//           using only private methods
-	//
-	// TODO: Check for sufficient ink (InsufficientInkError)
-	//       -> Request updated ink count from the miner, then do the calculation
-	// TODO: Validate the shape produced by the svg string
-	//       -> Private method
-	// TODO: Validate the length of the svg string
-	//       -> Private method
-	// TODO: Check if the shape overlaps with existing shapes
-	//       -> Send the shape to the miner, since the overlap detection
-	//          logic should be on the miner (since it will be continuously
-	//          checking overlaps for other miners' shapes)
-	// TODO: Check that the shape is within bounds
-	//       -> Could do this locally with a private method, but could also send
-	//          the shape to the miner since it should also have that logic for
-	//          validating other miners' shapes
-	//
-	//
-	// OPTION 2: Send the shape to the miner and have it perform all the validation
-	//
-	// TODO: Send the shape to the miner and prepare a response object to detect
-	//       the appropriate error
-	//
-	// We'll probably go with option 2 and use the ShapeError type to interpret the error
+	if c.hasOverlappingShape(shape) {
+		return shapeHash, blockHash, inkRemaining, ShapeOverlapError(shapeHash)
+	}
 
 	return shapeHash, blockHash, inkRemaining, nil
 }
@@ -331,17 +256,8 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 // - DisconnectedError
 // - InvalidShapeHashError
 func (c CanvasInstance) GetSvgString(shapeHash string) (svgString string, err error) {
-	err = c.Miner.Call("Miner.GetSvgString", shapeHash, &svgString)
-	if checkError(err) != nil {
-		return "", DisconnectedError(c.MinerAddr)
-	}
-
-	// We can interpret an empty svg string to mean an invalid shape hash
-	if len(svgString) == 0 {
-		return "", InvalidShapeHashError(shapeHash)
-	}
-
-	return svgString, nil
+	// TODO
+	return "", nil
 }
 
 // Returns the amount of ink currently available.
@@ -400,29 +316,80 @@ func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <PRIVATE METHODS>
 
+func (s Shape) ParseSvgString() (err error) {
+	s.commands = getCommands(s.shapeSvgString)
+	vertices := make([]Point, len(s.commands))
+
+	s.min = Point{}
+	s.max = Point{}
+
+	absPos := Point{0, 0}
+	relPos := Point{0, 0}
+	for i := range s.commands {
+		_command := s.commands[i]
+
+		switch _command.cmdType {
+		case "M":
+			absPos.x = uint32(_command.x)
+			absPos.y = uint32(_command.y)
+
+			relPos.x = uint32(_command.x)
+			relPos.y = uint32(_command.y)
+
+			vertices[i] = Point{relPos.x, relPos.y}
+		case "H":
+			relPos.x = uint32(int64(absPos.x) + _command.x)
+
+			vertices[i] = Point{relPos.x, absPos.y}
+		case "V":
+			relPos.y = uint32(int64(absPos.y) + _command.y)
+
+			vertices[i] = Point{absPos.x, relPos.y}
+		case "L":
+			relPos.x = uint32(int64(absPos.x) + _command.x)
+			relPos.y = uint32(int64(absPos.y) + _command.y)
+
+			vertices[i] = Point{relPos.x, relPos.y}
+		case "h":
+			relPos.x = uint32(int64(absPos.x) + _command.x)
+
+			vertices[i] = Point{relPos.x, absPos.y}
+		case "v":
+			relPos.y = uint32(int64(absPos.y) + _command.y)
+
+			vertices[i] = Point{absPos.x, relPos.y}
+		case "l":
+			relPos.x = uint32(int64(relPos.x) + _command.x)
+			relPos.y = uint32(int64(relPos.y) + _command.y)
+
+			vertices[i] = Point{relPos.x, relPos.y}
+		}
+
+		if relPos.x < s.min.x {
+			s.min.x = relPos.x
+		} else if relPos.x > s.max.x {
+			s.max.x = relPos.x
+		}
+
+		if relPos.y < s.min.y {
+			s.min.y = relPos.y
+		} else if relPos.y > s.max.y {
+			s.max.y = relPos.y
+		}
+	}
+
+	return
+}
+
 func (c CanvasInstance) hasOverlappingShape(shape Shape) bool {
+	//shapes := c.shapes
+
 	// check overlap against shapes in c.shapes which are not owned by this app
 	return false
 }
 
 func (s Shape) hash() string {
-	encodedShape, err := json.Marshal(s)
-	if checkError(err) != nil {
-		return ""
-	}
-
-	h := md5.New()
-	h.Write(encodedShape)
-
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func checkError(err error) error {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		return err
-	}
-	return nil
+	return ""
 }
 
 // </PRIVATE METHODS>

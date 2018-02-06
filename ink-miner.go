@@ -190,7 +190,7 @@ func (m *Miner) registerWithServer() {
 	serverConn, err := rpc.Dial("tcp", m.serverAddr)
 	settings := new(MinerNetSettings)
 	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, &settings)
-	logger.Println(err)
+	checkError(err)
 	logger.Println(settings)
 }
 

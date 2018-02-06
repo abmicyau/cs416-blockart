@@ -147,7 +147,7 @@ func main() {
 	go miner.listenRPC()
 	miner.registerWithServer()
 
-	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:63940") // for manual adding of miners right now
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:53969") // for manual adding of miners right now
 	miner.connectToMiners()
 	for {
 		miner.mineNoOpBlock()
@@ -286,7 +286,6 @@ func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 
 	// If new block, disseminate
 	if _, exists := m.blockchain[blockAndHash.BlockHash]; !exists {
-		logger.Println(m.blockchain)
 		m.blockchain[blockAndHash.BlockHash] = &blockAndHash.Blck
 		// compute longest chain
 		newChain := lengthLongestChain(blockAndHash.BlockHash, m.blockchain)
@@ -294,6 +293,8 @@ func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 		if newChain > oldChain {
 			m.longestChainLastBlockHash = blockAndHash.BlockHash
 		}
+		// TODO: Else, reply back with our longest chain to sync up with sender
+
 		//		Disseminate Block to connected Miners
 		for _, minerCon := range m.miners {
 			var isValid bool
@@ -321,6 +322,9 @@ func (m *Miner) GetSvgString(hash string, reply *string) error {
 // Counts the length of the block chain given a block hash
 func lengthLongestChain(blockhash string, blockchain map[string]*Block) int {
 	var length int
+	if len(blockhash) < 1 {
+		return length
+	}
 	var currhash = blockhash
 	for {
 		prevBlockHash := blockchain[currhash].PrevHash

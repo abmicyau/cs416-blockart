@@ -62,6 +62,7 @@ type Miner struct {
 	shapes                    map[string]*Shape
 	settings                  MinerSettings
 	minerAddrs                []string
+	newLongestChain           chan bool
 }
 
 type Block struct {
@@ -160,7 +161,7 @@ func main() {
 
 	// TODO: Get Nodes State Machine
 
-	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:46563") // for manual adding of miners right now
+	miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:44065") // for manual adding of miners right now
 	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:40883")
 	miner.connectToMiners()
 
@@ -180,6 +181,7 @@ func (m *Miner) init() {
 		m.privKey = priv
 		m.pubKey = priv.PublicKey
 	}
+	m.newLongestChain = make(chan bool)
 }
 
 func (m *Miner) listenRPC() {
@@ -273,26 +275,33 @@ func (m *Miner) mineNoOpBlock() {
 
 	// TODO: When a new block comes that adds to longest chain, stop mining and switch longest chain
 	for {
-		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), m.pubKey, nonce}
-		encodedBlock, err := json.Marshal(block)
-		if err != nil {
-			panic(err)
-		}
-		blockHash := md5Hash(encodedBlock)
-		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) {
-			logger.Println(block, blockHash)
-			m.updateShapes(block)
-			m.blockchain[blockHash] = block
-			logger.Println(m.blockchain)
-			m.longestChainLastBlockHash = blockHash
-			blockAndHash := &BlockAndHash{*block, blockHash}
-			for _, minerCon := range m.miners {
-				var isValid bool
-				minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+		select {
+		case <-m.newLongestChain:
+			logger.Println("Got a new longest chain!")
+			prevHash = m.longestChainLastBlockHash
+			blockNo = m.blockchain[prevHash].BlockNo + 1
+		default:
+			block := &Block{blockNo, prevHash, make([]OperationRecord, 0), m.pubKey, nonce}
+			encodedBlock, err := json.Marshal(block)
+			if err != nil {
+				panic(err)
 			}
-			return
-		} else {
-			nonce++
+			blockHash := md5Hash(encodedBlock)
+			if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) {
+				logger.Println(block, blockHash)
+				m.updateShapes(block)
+				m.blockchain[blockHash] = block
+				logger.Println(m.blockchain)
+				m.longestChainLastBlockHash = blockHash
+				blockAndHash := &BlockAndHash{*block, blockHash}
+				for _, minerCon := range m.miners {
+					var isValid bool
+					minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+				}
+				return
+			} else {
+				nonce++
+			}
 		}
 	}
 }
@@ -346,6 +355,7 @@ func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 		oldChain := lengthLongestChain(m.longestChainLastBlockHash, m.blockchain)
 		if newChain > oldChain {
 			m.longestChainLastBlockHash = blockAndHash.BlockHash
+			m.newLongestChain <- true
 		}
 		// TODO: Else, reply back with our longest chain to sync up with sender
 

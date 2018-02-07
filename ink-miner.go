@@ -45,7 +45,7 @@ const (
 )
 
 // Used to send heartbeat to the server just shy of 1 second each beat
-const TIME_BUFFER uint32 = 10
+const TIME_BUFFER uint32 = 5
 
 type Miner struct {
 	logger                    *log.Logger
@@ -150,7 +150,9 @@ func main() {
 	miner := new(Miner)
 	miner.init()
 	go miner.listenRPC()
-	miner.registerWithServer()
+	server := miner.registerWithServer()
+	time.Sleep(time.Second)
+	miner.getMinerAddrs(server)
 	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:53969") // for manual adding of miners right now
 	miner.connectToMiners()
 	for {
@@ -170,7 +172,7 @@ func (m *Miner) init() {
 }
 
 func (m *Miner) listenRPC() {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
+	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:8081")
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
@@ -188,15 +190,21 @@ func (m *Miner) listenRPC() {
 	}
 }
 
-func (m *Miner) registerWithServer() {
+func (m *Miner) registerWithServer() *rpc.Client {
 	serverConn, err := rpc.Dial("tcp", m.serverAddr)
 	settings := new(MinerNetSettings)
 	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, &settings)
+	checkError(err)
 	m.serverConn = serverConn
 	m.settings = settings.MinerSettings
 	go m.startHeartBeats()
-	checkError(err)
-	logger.Println(settings)
+	return serverConn
+}
+
+func (m *Miner) getMinerAddrs(server *rpc.Client) {
+  addrSet := make([]net.TCPAddr, 10)
+	server.Call("RServer.GetNodes", m.pubKey, &addrSet)
+	logger.Println(addrSet)
 }
 
 func (m *Miner) startHeartBeats() {

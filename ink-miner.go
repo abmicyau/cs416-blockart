@@ -141,7 +141,6 @@ type BlockAndHash struct {
 type ChainAndLength struct {
 	BlockChain       []Block
 	LongestBlockHash string
-	Length           int
 }
 
 // </TYPE DECLARATIONS>
@@ -161,7 +160,7 @@ func main() {
 
 	// TODO: Get Nodes State Machine
 
-	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:34029") // for manual adding of miners right now
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:46563") // for manual adding of miners right now
 	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:40883")
 	miner.connectToMiners()
 
@@ -241,7 +240,7 @@ func (m *Miner) getLongestChain() {
 		var ignored bool
 		chainAndLength := new(ChainAndLength)
 		minerCon.Call("Miner.GetBlockChain", ignored, &chainAndLength)
-		if chainAndLength.Length > longestChainAndLength.Length {
+		if len(chainAndLength.BlockChain) > len(longestChainAndLength.BlockChain) {
 			longestChainAndLength = chainAndLength
 		}
 	}
@@ -253,7 +252,7 @@ func (m *Miner) getLongestChain() {
 			currHash = longestChainAndLength.BlockChain[i].PrevHash
 		}
 		m.longestChainLastBlockHash = longestChainAndLength.LongestBlockHash
-		logger.Println("Starting at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo)
+		logger.Println("Start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
 	}
 }
 
@@ -361,26 +360,26 @@ func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 
 func (m *Miner) GetBlockChain(_ignored bool, chainAndLength *ChainAndLength) error {
 	logger.Println("GetBlockChain")
-	var longestChain []Block
-
-	var length int
-
 	if len(m.longestChainLastBlockHash) < 1 {
-		chainAndLength.Length = length
 		return nil
 	}
+
+	longestChainLength := m.blockchain[m.longestChainLastBlockHash].BlockNo + 1
+	longestChain := make([]Block, longestChainLength)
+
 	var currhash = m.longestChainLastBlockHash
-	for {
-		if block, exists := m.blockchain[currhash]; exists {
-			longestChain = append(longestChain, *block)
-			currhash = block.PrevHash
-			length++
-		} else {
-			break
-		}
+	for i := 0; i < int(longestChainLength); i++ {
+		longestChain[i] = *m.blockchain[currhash]
+		currhash = m.blockchain[currhash].PrevHash
+		// if block, exists := m.blockchain[currhash]; exists {
+		// 	longestChain = append(longestChain, *block)
+		// 	currhash = block.PrevHash
+		// 	length++
+		// } else {
+		// 	break
+		// }
 	}
 	chainAndLength.LongestBlockHash = m.longestChainLastBlockHash
-	chainAndLength.Length = length
 	chainAndLength.BlockChain = longestChain
 
 	return nil

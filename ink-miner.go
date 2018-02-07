@@ -161,7 +161,7 @@ func main() {
 
 	// TODO: Get Nodes State Machine
 
-	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:38945") // for manual adding of miners right now
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:34029") // for manual adding of miners right now
 	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:40883")
 	miner.connectToMiners()
 
@@ -245,13 +245,23 @@ func (m *Miner) getLongestChain() {
 			longestChainAndLength = chainAndLength
 		}
 	}
-	currHash := longestChainAndLength.LongestBlockHash
-	for _, block := range longestChainAndLength.BlockChain {
-		// Should be from Latest block to Earliest/Genesis
-		m.blockchain[currHash] = &block
-		currHash = block.PrevHash
+	if len(longestChainAndLength.LongestBlockHash) > 1 {
+		currHash := longestChainAndLength.LongestBlockHash
+		// for _, block := range longestChainAndLength.BlockChain {
+		// 	// Should be from Latest block to Earliest/Genesis
+		// 	logger.Println("Hash", currHash)
+		// 	logger.Println(block)
+		// 	m.blockchain[currHash] = &block
+		// 	currHash = block.PrevHash
+		// }
+		for i := 0; i < len(longestChainAndLength.BlockChain); i++ {
+			// Should be from Latest block to Earliest/Genesis
+			m.blockchain[currHash] = &longestChainAndLength.BlockChain[i]
+			currHash = longestChainAndLength.BlockChain[i].PrevHash
+		}
+		m.longestChainLastBlockHash = longestChainAndLength.LongestBlockHash
+		logger.Println("Starting at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo)
 	}
-	m.longestChainLastBlockHash = longestChainAndLength.LongestBlockHash
 }
 
 // Creates a noOp block and block hash that has a suffix of nHashZeroes

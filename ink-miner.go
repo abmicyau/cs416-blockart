@@ -247,13 +247,6 @@ func (m *Miner) getLongestChain() {
 	}
 	if len(longestChainAndLength.LongestBlockHash) > 1 {
 		currHash := longestChainAndLength.LongestBlockHash
-		// for _, block := range longestChainAndLength.BlockChain {
-		// 	// Should be from Latest block to Earliest/Genesis
-		// 	logger.Println("Hash", currHash)
-		// 	logger.Println(block)
-		// 	m.blockchain[currHash] = &block
-		// 	currHash = block.PrevHash
-		// }
 		for i := 0; i < len(longestChainAndLength.BlockChain); i++ {
 			// Should be from Latest block to Earliest/Genesis
 			m.blockchain[currHash] = &longestChainAndLength.BlockChain[i]

@@ -320,19 +320,28 @@ func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <PRIVATE METHODS>
 
+func (s *Shape) computeInkUsage() (inkUnits uint64) {
+	if s.fill == "transparent" {
+		for _, lineSegment := range s.lineSegments {
+			inkUnits = inkUnits + lineSegment.length()
+		}
+	}
+
+	return
+}
+
 func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 	valid = true
 
 	for _, vertex := range s.vertices {
-		if (vertex.x > int64(xMax) || vertex.x < 0) || (vertex.y > int64(yMax) || vertex.y < 0) {
-			valid = false
-			break
+		if valid = vertex.inBound(xMax, yMax); !valid {
+			err = new(OutOfBoundsError)
+
+			return
 		}
 	}
 
-	if !valid {
-		err = new(OutOfBoundsError)
-	} else if s.fill != "transparent" {
+	if s.fill != "transparent" {
 		for i := range s.lineSegments {
 			curSeg := s.lineSegments[i]
 
@@ -340,7 +349,8 @@ func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 				if i != j && linesOverlap(curSeg, s.lineSegments[j]) == true {
 					valid = false
 					err = InvalidShapeSvgStringError(s.shapeSvgString)
-					break
+
+					return
 				}
 			}
 

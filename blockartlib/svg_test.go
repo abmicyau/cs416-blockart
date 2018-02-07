@@ -171,5 +171,20 @@ func TestShapeValid(t *testing.T) {
 	if valid, err := shapeSelfIntersectNonTrans.isValid(xMax, yMax); valid != false || err == nil {
 		t.Error("Expected invalid shape, got valid")
 	}
+}
 
+// Test ink usage
+func TestInkUsage(t *testing.T) {
+	shape1 := Shape{fill: "transparent", shapeSvgString: "M 10 10 L 5 5 "}
+	shape2 := Shape{fill: "transparent", shapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
+	shape1.evaluateSvgString()
+	shape2.evaluateSvgString()
+
+	if ink := shape1.computeInkUsage(); ink != 16 {
+		t.Error("Expected 16 ink units, got", strconv.FormatUint(ink, 10))
+	}
+
+	if ink := shape2.computeInkUsage(); ink != 26 {
+		t.Error("Expected 14 ink units, got", strconv.FormatUint(ink, 10))
+	}
 }

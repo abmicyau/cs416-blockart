@@ -1,6 +1,7 @@
 package blockartlib
 
 import (
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,6 +21,10 @@ type Point struct {
 	y int64
 }
 
+func (p Point) inBound(xMax uint32, yMax uint32) bool {
+	return p.x > 0 && p.y > 0 && p.x < int64(xMax) && p.y < int64(yMax)
+}
+
 // Represents a line segment with start and end points
 // and equation ax + by = c
 type LineSegment struct {
@@ -29,6 +34,14 @@ type LineSegment struct {
 	a int64
 	b int64
 	c int64
+}
+
+func (l LineSegment) length() uint64 {
+	a := float64(l.start.x - l.end.x)
+	b := float64(l.start.y - l.end.y)
+	length := math.Sqrt(math.Pow(a, 2) + math.Pow(b, 2))
+
+	return uint64(math.Ceil(length))
 }
 
 // Normalizes SVG string removing all spaces and adding commas

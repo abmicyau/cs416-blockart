@@ -80,7 +80,23 @@ type MinerSettings struct {
 
 // Settings for an instance of the BlockArt project/network.
 type MinerNetSettings struct {
-	MinerSettings
+	// Hash of the very first (empty) block in the chain.
+	GenesisBlockHash string `json:"genesis-block-hash"`
+
+	// The minimum number of ink miners that an ink miner should be
+	// connected to.
+	MinNumMinerConnections uint8 `json:"min-num-miner-connections"`
+
+	// Mining ink reward per op and no-op blocks (>= 1)
+	InkPerOpBlock   uint32 `json:"ink-per-op-block"`
+	InkPerNoOpBlock uint32 `json:"ink-per-no-op-block"`
+
+	// Number of milliseconds between heartbeat messages to the server.
+	HeartBeat uint32 `json:"heartbeat"`
+
+	// Proof of work difficulty: number of zeroes in prefix (>=0)
+	PoWDifficultyOpBlock   uint8 `json:"pow-difficulty-op-block"`
+	PoWDifficultyNoOpBlock uint8 `json:"pow-difficulty-no-op-block"`
 
 	// Canvas settings
 	CanvasSettings CanvasSettings `json:"canvas-settings"`
@@ -89,7 +105,7 @@ type MinerNetSettings struct {
 type RServer int
 
 type Miner struct {
-	Address         net.TCPAddr
+	Address         net.Addr
 	RecentHeartbeat int64
 }
 
@@ -158,7 +174,7 @@ func main() {
 }
 
 type MinerInfo struct {
-	Address net.TCPAddr
+	Address net.Addr
 	Key     ecdsa.PublicKey
 }
 
@@ -219,7 +235,7 @@ func (s *RServer) Register(m MinerInfo, r *MinerNetSettings) error {
 	return nil
 }
 
-type Addresses []net.TCPAddr
+type Addresses []net.Addr
 
 func (a Addresses) Len() int           { return len(a) }
 func (a Addresses) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
@@ -229,7 +245,7 @@ func (a Addresses) Less(i, j int) bool { return a[i].String() < a[j].String() }
 //
 // Returns:
 // - UnknownKeyError if the server does not know a miner with this publicKey.
-func (s *RServer) GetNodes(key ecdsa.PublicKey, addrSet *[]net.TCPAddr) error {
+func (s *RServer) GetNodes(key ecdsa.PublicKey, addrSet *[]net.Addr) error {
 
 	// TODO: validate miner's GetNodes protocol? (could monitor state
 	// of network graph/connectivity and validate protocol FSM)
@@ -243,7 +259,7 @@ func (s *RServer) GetNodes(key ecdsa.PublicKey, addrSet *[]net.TCPAddr) error {
 		return unknownKeyError
 	}
 
-	minerAddresses := make([]net.TCPAddr, 0, len(allMiners.all)-1)
+	minerAddresses := make([]net.Addr, 0, len(allMiners.all)-1)
 
 	for pubKey, miner := range allMiners.all {
 		if pubKey == k {
@@ -261,7 +277,11 @@ func (s *RServer) GetNodes(key ecdsa.PublicKey, addrSet *[]net.TCPAddr) error {
 		minerAddresses[n-1], minerAddresses[randIndex] = minerAddresses[randIndex], minerAddresses[n-1]
 	}
 
-	*addrSet = minerAddresses[:config.NumMinerToReturn]
+	n := len(minerAddresses)
+	if int(config.NumMinerToReturn) < n {
+		n = int(config.NumMinerToReturn)
+	}
+	*addrSet = minerAddresses[:n]
 
 	return nil
 }

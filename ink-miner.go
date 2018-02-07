@@ -45,14 +45,14 @@ const (
 )
 
 // Used to send heartbeat to the server just shy of 1 second each beat
-const TIME_BUFFER uint32 = 10
+const TIME_BUFFER uint32 = 500
 
 type Miner struct {
 	logger                    *log.Logger
-	localAddr                 net.TCPAddr
+	localAddr                 net.Addr
 	serverAddr                string
 	serverConn                *rpc.Client
-	miners                    []*rpc.Client
+	miners                    map[string]*rpc.Client
 	blockchain                map[string]*Block
 	longestChainLastBlockHash string
 	genesisHash               string
@@ -130,7 +130,7 @@ type MinerNetSettings struct {
 }
 
 type MinerInfo struct {
-	Address net.TCPAddr
+	Address net.Addr
 	Key     ecdsa.PublicKey
 }
 
@@ -154,19 +154,19 @@ var (
 func main() {
 	logger = log.New(os.Stdout, "[Initializing]\n", log.Lshortfile)
 	gob.Register(&elliptic.CurveParams{})
+	gob.Register(&net.TCPAddr{})
 	miner := new(Miner)
 	miner.init()
 	go miner.listenRPC()
 	miner.registerWithServer()
+	go miner.getMiners()
 
 	// TODO: Get Nodes State Machine
 
-	miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:44065") // for manual adding of miners right now
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:44065") // for manual adding of miners right now
 	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:40883")
-	miner.connectToMiners()
 
 	miner.getLongestChain()
-
 	for {
 		miner.mineNoOpBlock()
 	}
@@ -176,6 +176,7 @@ func (m *Miner) init() {
 	args := os.Args[1:]
 	m.serverAddr = args[0]
 	m.blockchain = make(map[string]*Block)
+	m.miners = make(map[string]*rpc.Client)
 	if len(args) <= 1 {
 		priv := generateNewKeys()
 		m.privKey = priv
@@ -189,12 +190,7 @@ func (m *Miner) listenRPC() {
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
-	// Did the resolve again because tcpAddr was set to ":0"
-	// Server wants a TCPAddr to register
-	tcpAddr, err = net.ResolveTCPAddr("tcp", listener.Addr().String())
-	checkError(err)
-
-	m.localAddr = *tcpAddr
+	m.localAddr = listener.Addr()
 	logger.Println("Listening on: ", listener.Addr().String())
 	rpc.Register(m)
 	for {
@@ -205,6 +201,7 @@ func (m *Miner) listenRPC() {
 	}
 }
 
+// Ink miner registers their address and public key to the server and starts sending heartbeats
 func (m *Miner) registerWithServer() {
 	serverConn, err := rpc.Dial("tcp", m.serverAddr)
 	settings := new(MinerNetSettings)
@@ -216,9 +213,9 @@ func (m *Miner) registerWithServer() {
 	m.serverConn = serverConn
 	m.settings = settings.MinerSettings
 	go m.startHeartBeats()
-	logger.Println(settings)
 }
 
+// Sends heartbeats every half second to the server to maintain connection
 func (m *Miner) startHeartBeats() {
 	var ignored bool
 	m.serverConn.Call("RServer.HeartBeat", m.pubKey, &ignored)
@@ -228,11 +225,31 @@ func (m *Miner) startHeartBeats() {
 	}
 }
 
-func (m *Miner) connectToMiners() {
-	for _, minerAddr := range m.minerAddrs {
-		minerConn, err := rpc.Dial("tcp", minerAddr)
-		checkError(err)
-		m.miners = append(m.miners, minerConn)
+// Gets miners from server if below MinNumMinerConnections
+func (m *Miner) getMiners() {
+	var addrSet []net.Addr
+	for minerAddr, minerCon := range m.miners {
+		var isConnected bool
+		minerCon.Call("Miner.PingMiners", "", &isConnected)
+		if !isConnected {
+			delete(m.miners, minerAddr)
+		}
+	}
+	if len(m.miners) < int(m.settings.MinNumMinerConnections) {
+		m.serverConn.Call("RServer.GetNodes", m.pubKey, &addrSet)
+		m.connectToMiners(addrSet)
+		logger.Println(addrSet, m.miners)
+	}
+}
+
+// Establishes RPC connections with miners in addrs array
+func (m *Miner) connectToMiners(addrs []net.Addr) {
+	for _, minerAddr := range addrs {
+		if m.miners[minerAddr.String()] == nil {
+			minerConn, err := rpc.Dial("tcp", minerAddr.String())
+			checkError(err)
+			m.miners[minerAddr.String()] = minerConn
+		}
 	}
 }
 
@@ -294,10 +311,7 @@ func (m *Miner) mineNoOpBlock() {
 				logger.Println(m.blockchain)
 				m.longestChainLastBlockHash = blockHash
 				blockAndHash := &BlockAndHash{*block, blockHash}
-				for _, minerCon := range m.miners {
-					var isValid bool
-					minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
-				}
+				m.disseminateToConnectedMiners(*blockAndHash)
 				return
 			} else {
 				nonce++
@@ -360,11 +374,31 @@ func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners
-		for _, minerCon := range m.miners {
-			var isValid bool
+		m.disseminateToConnectedMiners(blockAndHash)
+	}
+	return nil
+}
+
+// Sends block to all connected miners
+// Makes sure that enough miners are connected; if under minimum, it calls for more
+func (m *Miner) disseminateToConnectedMiners(blockAndHash BlockAndHash) {
+	m.getMiners() // checks all miners, connects to more if needed
+	for minerAddr, minerCon := range m.miners {
+		var isConnected bool
+		var isValid bool
+		minerCon.Call("Miner.PingMiners", "", &isConnected)
+		if isConnected {
 			minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+		} else {
+			delete(m.miners, minerAddr)
 		}
 	}
+}
+
+// Pings all miners currently listed in the miner map
+// If a connected miner fails to reply, that miner should be removed from the map
+func (m *Miner) PingMiners(payload string, reply *bool) error {
+	*reply = true
 	return nil
 }
 

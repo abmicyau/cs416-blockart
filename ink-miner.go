@@ -303,10 +303,7 @@ func (m *Miner) mineNoOpBlock() {
 			logger.Println(m.blockchain)
 			m.longestChainLastBlockHash = blockHash
 			blockAndHash := &BlockAndHash{*block, blockHash}
-			for _, minerCon := range m.miners {
-				var isValid bool
-				minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
-			}
+			m.disseminateToConnectedMiners(*blockAndHash)
 			return
 		} else {
 			nonce++
@@ -367,14 +364,14 @@ func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners
-		m.disseminateToConnectedMiners(&blockAndHash)
+		m.disseminateToConnectedMiners(blockAndHash)
 	}
 	return nil
 }
 
 // Sends block to all connected miners
 // Makes sure that enough miners are connected; if under minimum, it calls for more
-func (m *Miner) disseminateToConnectedMiners(blockAndHash *BlockAndHash) {
+func (m *Miner) disseminateToConnectedMiners(blockAndHash BlockAndHash) {
 	m.getMiners() // checks all miners, connects to more if needed
 	for minerAddr, minerCon := range m.miners {
 		var isConnected bool

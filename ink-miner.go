@@ -137,6 +137,12 @@ type BlockAndHash struct {
 	Blck      Block
 	BlockHash string
 }
+
+type ChainAndLength struct {
+	BlockChain       []Block
+	LongestBlockHash string
+}
+
 // </TYPE DECLARATIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -153,6 +159,13 @@ func main() {
 	go miner.listenRPC()
 	miner.registerWithServer()
 	go miner.getMiners()
+
+	// TODO: Get Nodes State Machine
+
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:46563") // for manual adding of miners right now
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:40883")
+
+	miner.getLongestChain()
 	for {
 		miner.mineNoOpBlock()
 	}
@@ -176,11 +189,8 @@ func (m *Miner) listenRPC() {
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
 	m.localAddr = listener.Addr()
-
 	logger.Println("Listening on: ", listener.Addr().String())
-
 	rpc.Register(m)
-
 	for {
 		conn, err := listener.Accept()
 		checkError(err)
@@ -194,7 +204,10 @@ func (m *Miner) registerWithServer() {
 	serverConn, err := rpc.Dial("tcp", m.serverAddr)
 	settings := new(MinerNetSettings)
 	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, &settings)
-	checkError(err)
+	if checkError(err) != nil {
+		//TODO: Crashing for now, will need to revisit if there is any softer way to handle the error
+		log.Fatal("Couldn't Register to Server")
+	}
 	m.serverConn = serverConn
 	m.settings = settings.MinerSettings
 	go m.startHeartBeats()
@@ -205,7 +218,7 @@ func (m *Miner) startHeartBeats() {
 	var ignored bool
 	m.serverConn.Call("RServer.HeartBeat", m.pubKey, &ignored)
 	for {
-		time.Sleep(time.Duration(m.settings.HeartBeat - TIME_BUFFER)*time.Millisecond)
+		time.Sleep(time.Duration(m.settings.HeartBeat-TIME_BUFFER) * time.Millisecond)
 		m.serverConn.Call("RServer.HeartBeat", m.pubKey, &ignored)
 	}
 }
@@ -238,6 +251,28 @@ func (m *Miner) connectToMiners(addrs []net.Addr) {
 	}
 }
 
+func (m *Miner) getLongestChain() {
+	longestChainAndLength := new(ChainAndLength)
+	for _, minerCon := range m.miners {
+		var ignored bool
+		chainAndLength := new(ChainAndLength)
+		minerCon.Call("Miner.GetBlockChain", ignored, &chainAndLength)
+		if len(chainAndLength.BlockChain) > len(longestChainAndLength.BlockChain) {
+			longestChainAndLength = chainAndLength
+		}
+	}
+	if len(longestChainAndLength.LongestBlockHash) > 1 {
+		currHash := longestChainAndLength.LongestBlockHash
+		for i := 0; i < len(longestChainAndLength.BlockChain); i++ {
+			// Should be from Latest block to Earliest/Genesis
+			m.blockchain[currHash] = &longestChainAndLength.BlockChain[i]
+			currHash = longestChainAndLength.BlockChain[i].PrevHash
+		}
+		m.longestChainLastBlockHash = longestChainAndLength.LongestBlockHash
+		logger.Println("Start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
+	}
+}
+
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
 // If successful, block is appended to the longestChainLastBlockHashin the blockchain map
 func (m *Miner) mineNoOpBlock() {
@@ -253,6 +288,7 @@ func (m *Miner) mineNoOpBlock() {
 		blockNo = m.blockchain[prevHash].BlockNo + 1
 	}
 
+	// TODO: When a new block comes that adds to longest chain, stop mining and switch longest chain
 	for {
 		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), m.pubKey, nonce}
 		encodedBlock, err := json.Marshal(block)
@@ -312,7 +348,6 @@ func (m *Miner) Hello(arg string, _ *struct{}) error {
 }
 
 func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
-	logger.SetPrefix("[SendBlock()]\n")
 	logger.Println("Received Block: ", blockAndHash.BlockHash)
 
 	// TODO:
@@ -356,6 +391,33 @@ func (m *Miner) disseminateToConnectedMiners(blockAndHash *BlockAndHash) {
 // If a connected miner fails to reply, that miner should be removed from the map
 func (m *Miner) PingMiners(payload string, reply *bool) error {
 	*reply = true
+	return nil
+}
+
+func (m *Miner) GetBlockChain(_ignored bool, chainAndLength *ChainAndLength) error {
+	logger.Println("GetBlockChain")
+	if len(m.longestChainLastBlockHash) < 1 {
+		return nil
+	}
+
+	longestChainLength := m.blockchain[m.longestChainLastBlockHash].BlockNo + 1
+	longestChain := make([]Block, longestChainLength)
+
+	var currhash = m.longestChainLastBlockHash
+	for i := 0; i < int(longestChainLength); i++ {
+		longestChain[i] = *m.blockchain[currhash]
+		currhash = m.blockchain[currhash].PrevHash
+		// if block, exists := m.blockchain[currhash]; exists {
+		// 	longestChain = append(longestChain, *block)
+		// 	currhash = block.PrevHash
+		// 	length++
+		// } else {
+		// 	break
+		// }
+	}
+	chainAndLength.LongestBlockHash = m.longestChainLastBlockHash
+	chainAndLength.BlockChain = longestChain
+
 	return nil
 }
 

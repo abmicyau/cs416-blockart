@@ -135,3 +135,41 @@ func TestLineOverlap(t *testing.T) {
 		t.Error("Expected false, got true")
 	}
 }
+
+// Test shape validity
+func TestShapeValid(t *testing.T) {
+	xMax := uint32(100)
+	yMax := uint32(100)
+
+	shapeLineInBound := Shape{fill: "transparent", shapeSvgString: "M 10 10 L 5 5 "}
+	shapeOutOfMinBound := Shape{fill: "transparent", shapeSvgString: "M 5 5 h -7"}
+	shapeOutOfMaxBound := Shape{fill: "transparent", shapeSvgString: "M 7 5 h 10000000"}
+	shapeSelfIntersectTrans := Shape{fill: "transparent", shapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
+	shapeSelfIntersectNonTrans := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
+	shapeLineInBound.evaluateSvgString()
+	shapeOutOfMinBound.evaluateSvgString()
+	shapeOutOfMaxBound.evaluateSvgString()
+	shapeSelfIntersectTrans.evaluateSvgString()
+	shapeSelfIntersectNonTrans.evaluateSvgString()
+
+	if valid, err := shapeLineInBound.isValid(xMax, yMax); valid != true {
+		t.Error("Expected valid shape, got", err)
+	}
+
+	if valid, err := shapeSelfIntersectTrans.isValid(xMax, yMax); valid != true {
+		t.Error("Expected valid shape, got", err)
+	}
+
+	if valid, err := shapeOutOfMinBound.isValid(xMax, yMax); valid != false || err == nil {
+		t.Error("Expected invalid shape, got valid")
+	}
+
+	if valid, err := shapeOutOfMaxBound.isValid(xMax, yMax); valid != false || err == nil {
+		t.Error("Expected invalid shape, got valid")
+	}
+
+	if valid, err := shapeSelfIntersectNonTrans.isValid(xMax, yMax); valid != false || err == nil {
+		t.Error("Expected invalid shape, got valid")
+	}
+
+}

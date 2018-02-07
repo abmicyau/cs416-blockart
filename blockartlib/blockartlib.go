@@ -121,10 +121,11 @@ type Shape struct {
 	stroke         string
 	owner          ecdsa.PublicKey
 
-	commands []Command
-	vertices []Point
-	min      Point
-	max      Point
+	commands     []Command
+	vertices     []Point
+	lineSegments []LineSegment
+	min          Point
+	max          Point
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -244,7 +245,8 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 	blockHash = ""
 	inkRemaining = 0
 
-	if err = shape.evaluateSvgString(); err != nil {
+	shape.evaluateSvgString()
+	if valid, err := shape.isValid(c.settings.CanvasXMax, c.settings.CanvasYMax); !valid {
 		return shapeHash, blockHash, inkRemaining, err
 	} else if c.hasOverlappingShape(shape) {
 		return shapeHash, blockHash, inkRemaining, ShapeOverlapError(shapeHash)
@@ -318,6 +320,39 @@ func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <PRIVATE METHODS>
 
+func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
+	valid = true
+
+	for _, vertex := range s.vertices {
+		if (vertex.x > int64(xMax) || vertex.x < 0) || (vertex.y > int64(yMax) || vertex.y < 0) {
+			valid = false
+			break
+		}
+	}
+
+	if !valid {
+		err = new(OutOfBoundsError)
+	} else if s.fill != "transparent" {
+		for i := range s.lineSegments {
+			curSeg := s.lineSegments[i]
+
+			for j := range s.lineSegments {
+				if i != j && linesOverlap(curSeg, s.lineSegments[j]) == true {
+					valid = false
+					err = InvalidShapeSvgStringError(s.shapeSvgString)
+					break
+				}
+			}
+
+			if !valid {
+				break
+			}
+		}
+	}
+
+	return
+}
+
 func (s *Shape) evaluateSvgString() (err error) {
 	s.commands, err = getCommands(s.shapeSvgString)
 	if err != nil {
@@ -385,6 +420,7 @@ func (s *Shape) evaluateSvgString() (err error) {
 	}
 
 	s.vertices = vertices
+	s.lineSegments = getLineSegments(vertices)
 
 	return
 }

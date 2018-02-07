@@ -20,8 +20,8 @@ type Point struct {
 	y int64
 }
 
-// Represents a line segment with start and end point
-// with equation format ax + by = c
+// Represents a line segment with start and end points
+// and equation ax + by = c
 type LineSegment struct {
 	start Point
 	end   Point

@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// Test normalization
 func TestNormalizeSvgString(t *testing.T) {
 	svgString := "   M 10 10 L 5 , 5 h -3 Z"
 	svgNorm := normalizeSvgString(svgString)
@@ -15,9 +16,10 @@ func TestNormalizeSvgString(t *testing.T) {
 	}
 }
 
+// Test command parsing
 func TestGetCommands(t *testing.T) {
 	shape := Shape{shapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
-	shape.ParseSvgString()
+	shape.evaluateSvgString()
 
 	commands := shape.commands
 	commandsExpected := []Command{
@@ -44,9 +46,10 @@ func TestGetCommands(t *testing.T) {
 	}
 }
 
+// Test vertices generated from commands
 func TestGetVertices(t *testing.T) {
 	shape := Shape{shapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
-	shape.ParseSvgString()
+	shape.evaluateSvgString()
 
 	vertices := shape.vertices
 	verticesExpected := []Point{
@@ -68,15 +71,16 @@ func TestGetVertices(t *testing.T) {
 	}
 }
 
+// Test line segments generated from vertices
 func TestGetLineSegments(t *testing.T) {
 	shape := Shape{shapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
-	shape.ParseSvgString()
+	shape.evaluateSvgString()
 
 	lineSegments := getLineSegments(shape.vertices)
 	lineSegmentsExpected := []LineSegment{
-		LineSegment{-5, 5, 0},
-		LineSegment{0, 3, -15},
-		LineSegment{5, -8, 30}}
+		LineSegment{a: -5, b: 5, c: 0},
+		LineSegment{a: 0, b: 3, c: 15},
+		LineSegment{a: 5, b: -8, c: -30}}
 
 	for i := range lineSegments {
 		lineSegment := lineSegments[i]
@@ -93,5 +97,41 @@ func TestGetLineSegments(t *testing.T) {
 		if lineSegment.c != lineSegmentExpected.c {
 			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.c))+", got ", strconv.Itoa(int(lineSegment.c)))
 		}
+	}
+}
+
+// Test line-to-line overlap
+func TestLineOverlap(t *testing.T) {
+	shape1 := Shape{shapeSvgString: "M 10 10 L 5 5 "}
+	shape2 := Shape{shapeSvgString: "M 5 5 L 10 10"}
+	shape3 := Shape{shapeSvgString: "M 7 5 L 5 10 v -2 Z"}
+	shape1.evaluateSvgString()
+	shape2.evaluateSvgString()
+	shape3.evaluateSvgString()
+
+	lineSegments1 := getLineSegments(shape1.vertices)
+	lineSegments2 := getLineSegments(shape2.vertices)
+	lineSegments3 := getLineSegments(shape3.vertices)
+
+	// Test parallel lines
+	if linesOverlap(lineSegments1[0], lineSegments2[0]) != true {
+		t.Error("Expected true, got false")
+	}
+
+	if linesOverlap(lineSegments1[0], lineSegments2[1]) != true {
+		t.Error("Expected true, got false")
+	}
+
+	// Test non-parallel lines
+	if linesOverlap(lineSegments1[0], lineSegments3[0]) != true {
+		t.Error("Expected true, got false")
+	}
+
+	if linesOverlap(lineSegments1[0], lineSegments3[2]) != true {
+		t.Error("Expected true, got false")
+	}
+
+	if linesOverlap(lineSegments1[0], lineSegments3[1]) != false {
+		t.Error("Expected false, got true")
 	}
 }

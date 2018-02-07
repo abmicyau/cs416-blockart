@@ -244,7 +244,9 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 	blockHash = ""
 	inkRemaining = 0
 
-	if c.hasOverlappingShape(shape) {
+	if err = shape.evaluateSvgString(); err != nil {
+		return shapeHash, blockHash, inkRemaining, err
+	} else if c.hasOverlappingShape(shape) {
 		return shapeHash, blockHash, inkRemaining, ShapeOverlapError(shapeHash)
 	}
 
@@ -316,8 +318,12 @@ func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <PRIVATE METHODS>
 
-func (s Shape) ParseSvgString() (err error) {
-	s.commands = getCommands(s.shapeSvgString)
+func (s *Shape) evaluateSvgString() (err error) {
+	s.commands, err = getCommands(s.shapeSvgString)
+	if err != nil {
+		return
+	}
+
 	vertices := make([]Point, len(s.commands))
 
 	s.min = Point{}
@@ -330,37 +336,37 @@ func (s Shape) ParseSvgString() (err error) {
 
 		switch _command.cmdType {
 		case "M":
-			absPos.x = uint32(_command.x)
-			absPos.y = uint32(_command.y)
+			absPos.x = _command.x
+			absPos.y = _command.y
 
-			relPos.x = uint32(_command.x)
-			relPos.y = uint32(_command.y)
+			relPos.x = _command.x
+			relPos.y = _command.y
 
 			vertices[i] = Point{relPos.x, relPos.y}
 		case "H":
-			relPos.x = uint32(int64(absPos.x) + _command.x)
+			relPos.x = _command.x
 
 			vertices[i] = Point{relPos.x, absPos.y}
 		case "V":
-			relPos.y = uint32(int64(absPos.y) + _command.y)
+			relPos.y = _command.y
 
 			vertices[i] = Point{absPos.x, relPos.y}
 		case "L":
-			relPos.x = uint32(int64(absPos.x) + _command.x)
-			relPos.y = uint32(int64(absPos.y) + _command.y)
+			relPos.x = _command.x
+			relPos.y = _command.y
 
 			vertices[i] = Point{relPos.x, relPos.y}
 		case "h":
-			relPos.x = uint32(int64(absPos.x) + _command.x)
+			relPos.x = relPos.x + _command.x
 
-			vertices[i] = Point{relPos.x, absPos.y}
+			vertices[i] = Point{relPos.x, relPos.y}
 		case "v":
-			relPos.y = uint32(int64(absPos.y) + _command.y)
+			relPos.y = relPos.y + _command.y
 
-			vertices[i] = Point{absPos.x, relPos.y}
+			vertices[i] = Point{relPos.x, relPos.y}
 		case "l":
-			relPos.x = uint32(int64(relPos.x) + _command.x)
-			relPos.y = uint32(int64(relPos.y) + _command.y)
+			relPos.x = relPos.x + _command.x
+			relPos.y = relPos.y + _command.y
 
 			vertices[i] = Point{relPos.x, relPos.y}
 		}
@@ -378,14 +384,54 @@ func (s Shape) ParseSvgString() (err error) {
 		}
 	}
 
+	s.vertices = vertices
+
 	return
 }
 
-func (c CanvasInstance) hasOverlappingShape(shape Shape) bool {
-	//shapes := c.shapes
+func (s *Shape) hasOverlap(shape Shape) (overlap bool) {
+	s.evaluateSvgString()
 
-	// check overlap against shapes in c.shapes which are not owned by this app
-	return false
+	_lineSegments := getLineSegments(s.vertices)
+	lineSegments := getLineSegments(shape.vertices)
+	if s.fill == "transparent" && shape.fill == "transparent" {
+		for i := range lineSegments {
+			lineSegment := lineSegments[i]
+
+			for j := range _lineSegments {
+				_lineSegment := _lineSegments[j]
+
+				overlap = linesOverlap(_lineSegment, lineSegment)
+				if overlap {
+					break
+				}
+			}
+
+			if overlap {
+				break
+			}
+		}
+	}
+
+	return
+}
+
+func (c CanvasInstance) hasOverlappingShape(shape Shape) (overlap bool) {
+	shapes := c.shapes
+	for i := range shapes {
+		_shape := shapes[i]
+
+		if _shape.owner == shape.owner {
+			continue
+		}
+
+		overlap = _shape.hasOverlap(shape)
+		if overlap {
+			break
+		}
+	}
+
+	return
 }
 
 func (s Shape) hash() string {

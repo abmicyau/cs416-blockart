@@ -157,16 +157,11 @@ func main() {
 	gob.Register(&net.TCPAddr{})
 	miner := new(Miner)
 	miner.init()
-	go miner.listenRPC()
+	miner.listenRPC()
 	miner.registerWithServer()
-	go miner.getMiners()
-
-	// TODO: Get Nodes State Machine
-
-	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:44065") // for manual adding of miners right now
-	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:40883")
-
+	miner.getMiners()
 	miner.getLongestChain()
+	//logger = log.SetPrefix("[Mining]\n")
 	for {
 		miner.mineNoOpBlock()
 	}
@@ -193,12 +188,14 @@ func (m *Miner) listenRPC() {
 	m.localAddr = listener.Addr()
 	logger.Println("Listening on: ", listener.Addr().String())
 	rpc.Register(m)
-	for {
-		conn, err := listener.Accept()
-		checkError(err)
-		logger.Println("New connection from " + conn.RemoteAddr().String())
-		go rpc.ServeConn(conn)
-	}
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			checkError(err)
+			logger.Println("New connection from " + conn.RemoteAddr().String())
+			go rpc.ServeConn(conn)
+		}
+	}()
 }
 
 // Ink miner registers their address and public key to the server and starts sending heartbeats
@@ -289,8 +286,6 @@ func (m *Miner) mineNoOpBlock() {
 		prevHash = m.longestChainLastBlockHash
 		blockNo = m.blockchain[prevHash].BlockNo + 1
 	}
-
-	// TODO: When a new block comes that adds to longest chain, stop mining and switch longest chain
 	for {
 		select {
 		case <-m.newLongestChain:
@@ -370,7 +365,7 @@ func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 		if newChain > oldChain {
 			m.longestChainLastBlockHash = blockAndHash.BlockHash
 			m.newLongestChain <- true
-		}
+		} // TODO: else, if equal, pick the largest hash = random
 		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners

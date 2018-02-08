@@ -30,12 +30,14 @@ func main() {
 	}
 
 	// Open a canvas.
-	_, _, err = blockartlib.OpenCanvas(minerAddr, *privKey)
+	canvas, _, err := blockartlib.OpenCanvas(minerAddr, *privKey)
 	if checkError(err) != nil {
 		return
 	}
 
-	// validateNum := 2
+	_, _ = canvas.GetShapes("")
+
+ 	// validateNum := 2
 
 	// // Add a line.
 	// shapeHash, blockHash, ink, err := canvas.AddShape(validateNum, blockartlib.PATH, "M 0 0 L 0 5", "transparent", "red")

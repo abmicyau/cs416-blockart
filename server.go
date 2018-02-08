@@ -210,6 +210,8 @@ func (s *RServer) Register(m MinerInfo, r *MinerNetSettings) error {
 	allMiners.Lock()
 	defer allMiners.Unlock()
 
+	// fmt.Println(m.Address)
+
 	k := pubKeyToString(m.Key)
 	if miner, exists := allMiners.all[k]; exists {
 		return KeyAlreadyRegisteredError(miner.Address.String())

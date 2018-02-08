@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"net"
 	"net/rpc"
 	"os"
@@ -44,6 +45,65 @@ const (
 	REMOVE
 )
 
+// Represents error codes for requests to an ink miner
+type MinerResponseError int
+
+const (
+	NO_ERROR MinerResponseError = iota
+	INVALID_SIGNATURE
+	INVALID_TOKEN
+	INSUFFICIENT_INK
+	INVALID_SHAPE_SVG_STRING
+	SHAPE_SVG_STRING_TOO_LONG
+	SHAPE_OVERLAP
+	OUT_OF_BOUNDS
+	INVALID_SHAPE_HASH
+	INVALID_BLOCK_HASH
+)
+
+type MinerResponse struct {
+	Error   MinerResponseError
+	Payload []interface{}
+}
+
+type ArtnodeRequest struct {
+	Token   string
+	Payload []interface{}
+}
+
+// Settings for a canvas in BlockArt.
+type CanvasSettings struct {
+	// Canvas dimensions
+	CanvasXMax uint32
+	CanvasYMax uint32
+}
+
+// Settings for an instance of the BlockArt project/network.
+type MinerNetSettings struct {
+	// Hash of the very first (empty) block in the chain.
+	GenesisBlockHash string
+
+	// The minimum number of ink miners that an ink miner should be
+	// connected to. If the ink miner dips below this number, then
+	// they have to retrieve more nodes from the server using
+	// GetNodes().
+	MinNumMinerConnections uint8
+
+	// Mining ink reward per op and no-op blocks (>= 1)
+	InkPerOpBlock   uint32
+	InkPerNoOpBlock uint32
+
+	// Number of milliseconds between heartbeat messages to the server.
+	HeartBeat uint32
+
+	// Proof of work difficulty: number of zeroes in prefix (>=0)
+	PoWDifficultyOpBlock   uint8
+	PoWDifficultyNoOpBlock uint8
+
+	// Canvas settings
+	CanvasSettings CanvasSettings
+}
+
 // Used to send heartbeat to the server just shy of 1 second each beat
 const TIME_BUFFER uint32 = 500
 
@@ -55,14 +115,13 @@ type Miner struct {
 	miners                    map[string]*rpc.Client
 	blockchain                map[string]*Block
 	longestChainLastBlockHash string
-	genesisHash               string
-	nHashZeroes               uint32
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
 	shapes                    map[string]*Shape
-	settings                  MinerSettings
-	minerAddrs                []string
-	newLongestChain           chan bool
+	inkRemaining              uint32
+	settings                  *MinerNetSettings
+	nonces                    map[string]bool
+	tokens                    map[string]bool
 }
 
 type Block struct {
@@ -85,6 +144,7 @@ type Operation struct {
 	Type        OpType
 	Shape       Shape
 	ShapeHash   string
+	InkCost     uint32
 	ValidateNum uint8
 }
 
@@ -92,41 +152,6 @@ type OperationRecord struct {
 	Op     Operation
 	OpSig  string
 	PubKey ecdsa.PublicKey
-}
-
-// Settings for a canvas in BlockArt.
-type CanvasSettings struct {
-	// Canvas dimensions
-	CanvasXMax uint32 `json:"canvas-x-max"`
-	CanvasYMax uint32 `json:"canvas-y-max"`
-}
-
-type MinerSettings struct {
-	// Hash of the very first (empty) block in the chain.
-	GenesisBlockHash string `json:"genesis-block-hash"`
-
-	// The minimum number of ink miners that an ink miner should be
-	// connected to.
-	MinNumMinerConnections uint8 `json:"min-num-miner-connections"`
-
-	// Mining ink reward per op and no-op blocks (>= 1)
-	InkPerOpBlock   uint32 `json:"ink-per-op-block"`
-	InkPerNoOpBlock uint32 `json:"ink-per-no-op-block"`
-
-	// Number of milliseconds between heartbeat messages to the server.
-	HeartBeat uint32 `json:"heartbeat"`
-
-	// Proof of work difficulty: number of zeroes in prefix (>=0)
-	PoWDifficultyOpBlock   uint8 `json:"pow-difficulty-op-block"`
-	PoWDifficultyNoOpBlock uint8 `json:"pow-difficulty-no-op-block"`
-}
-
-// Settings for an instance of the BlockArt project/network.
-type MinerNetSettings struct {
-	MinerSettings
-
-	// Canvas settings
-	CanvasSettings CanvasSettings `json:"canvas-settings"`
 }
 
 type MinerInfo struct {
@@ -148,7 +173,8 @@ type ChainAndLength struct {
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 var (
-	logger *log.Logger
+	logger   *log.Logger
+	alphabet = []rune("0123456789abcdef")
 )
 
 func main() {
@@ -171,6 +197,9 @@ func (m *Miner) init() {
 	args := os.Args[1:]
 	m.serverAddr = args[0]
 	m.blockchain = make(map[string]*Block)
+	m.shapes = make(map[string]*Shape)
+	m.nonces = make(map[string]bool)
+	m.tokens = make(map[string]bool)
 	m.miners = make(map[string]*rpc.Client)
 	if len(args) <= 1 {
 		priv := generateNewKeys()
@@ -185,9 +214,9 @@ func (m *Miner) listenRPC() {
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
+	rpc.Register(m)
 	m.localAddr = listener.Addr()
 	logger.Println("Listening on: ", listener.Addr().String())
-	rpc.Register(m)
 	go func() {
 		for {
 			conn, err := listener.Accept()
@@ -202,13 +231,13 @@ func (m *Miner) listenRPC() {
 func (m *Miner) registerWithServer() {
 	serverConn, err := rpc.Dial("tcp", m.serverAddr)
 	settings := new(MinerNetSettings)
-	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, &settings)
+	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, settings)
 	if checkError(err) != nil {
 		//TODO: Crashing for now, will need to revisit if there is any softer way to handle the error
 		log.Fatal("Couldn't Register to Server")
 	}
 	m.serverConn = serverConn
-	m.settings = settings.MinerSettings
+	m.settings = settings
 	go m.startHeartBeats()
 }
 
@@ -301,10 +330,10 @@ func (m *Miner) mineNoOpBlock() {
 			blockHash := md5Hash(encodedBlock)
 			if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) {
 				logger.Println(block, blockHash)
-				m.updateShapes(block)
 				m.blockchain[blockHash] = block
 				logger.Println(m.blockchain)
 				m.longestChainLastBlockHash = blockHash
+				m.update(block)
 				blockAndHash := &BlockAndHash{*block, blockHash}
 				m.disseminateToConnectedMiners(*blockAndHash)
 				return
@@ -315,27 +344,94 @@ func (m *Miner) mineNoOpBlock() {
 	}
 }
 
-// Updates the miner's shape collection for a newly mined block.
-// AddShape operations add a shape to the collection and DeleteShape
-// operations remove them.
+// For performance reasons, we keep track of some state in the miner.
+// This is not strictly necessary, but it will make many operations much
+// easier to perform.
 //
-// Assumption: an ADD and REMOVE operation for the same shape will
+// This method updates the miner's state based in a newly mined block.
+// This includes:
+//  - Adding new shapes to the shape collection
+//  - Removing deleted shapes from the shape collection
+//  - Updating the amount of ink that the miner has remaining
+//
+// Miner.update() has a complimentary function, Miner.revert(). See below.
+//
+// ! Assumption: an ADD and REMOVE operation for the same shape will
 // not exist in the same block.
 //
-// TODO: Remember that any time we switch blockchains (for example,
+// TODO #1: Remember that any time we switch blockchains (for example,
 // the if current one is outrun), we must reverse all operations up
-// to the most recent ancestor and re-apply the updated shapes in
-// the new chain. We must also remember to re-create the shape
-// collection if the miner newly joins the network, or upon recovery
-// from a disconnection/failure.
+// to the most recent ancestor and re-apply state changes that can be
+// derived from the new chain.
 //
-func (m *Miner) updateShapes(block *Block) {
+// TODO #2: Use a lock to ensure thread safety.
+//
+func (m *Miner) update(block *Block) {
+	// update shapes and ink per operation
 	for _, record := range block.Records {
 		op := record.Op
 		if op.Type == ADD {
 			m.shapes[op.ShapeHash] = &op.Shape
+			if record.PubKey == m.pubKey {
+				m.inkRemaining -= op.InkCost
+			}
 		} else {
 			delete(m.shapes, op.ShapeHash)
+			if record.PubKey == m.pubKey {
+				m.inkRemaining += op.InkCost
+			}
+		}
+	}
+
+	// add ink for the newly mined block if it was mined by this miner
+	if block.PubKey == m.pubKey {
+		if len(block.Records) == 0 {
+			m.inkRemaining += m.settings.InkPerNoOpBlock
+		} else {
+			m.inkRemaining += m.settings.InkPerOpBlock
+		}
+	}
+}
+
+// Reverses update(). Used to roll back during a branch switch.
+//
+func (m *Miner) revert(block *Block) {
+	for _, record := range block.Records {
+		op := record.Op
+		if op.Type == REMOVE {
+			m.shapes[op.ShapeHash] = &op.Shape
+			if record.PubKey == m.pubKey {
+				m.inkRemaining -= op.InkCost
+			}
+		} else {
+			delete(m.shapes, op.ShapeHash)
+			if record.PubKey == m.pubKey {
+				m.inkRemaining += op.InkCost
+			}
+		}
+	}
+
+	if block.PubKey == m.pubKey {
+		if len(block.Records) == 0 {
+			m.inkRemaining -= m.settings.InkPerNoOpBlock
+		} else {
+			m.inkRemaining -= m.settings.InkPerOpBlock
+		}
+	}
+}
+
+// Sends block to all connected miners
+// Makes sure that enough miners are connected; if under minimum, it calls for more
+func (m *Miner) disseminateToConnectedMiners(blockAndHash BlockAndHash) {
+	m.getMiners() // checks all miners, connects to more if needed
+	for minerAddr, minerCon := range m.miners {
+		var isConnected bool
+		var isValid bool
+		minerCon.Call("Miner.PingMiners", "", &isConnected)
+		if isConnected {
+			minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+		} else {
+			delete(m.miners, minerAddr)
 		}
 	}
 }
@@ -343,8 +439,64 @@ func (m *Miner) updateShapes(block *Block) {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <RPC METHODS>
 
-// Placeholder to prevent the compile warning
-func (m *Miner) Hello(arg string, _ *struct{}) error {
+func (m *Miner) Hello(_ string, nonce *string) error {
+	*nonce = getRand256()
+	m.nonces[*nonce] = true
+	return nil
+}
+
+// Once a token is successfully retrieved, that nonce can no longer be used
+//
+func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) error {
+	nonce := request.Payload[0].(string)
+	r := new(big.Int)
+	s := new(big.Int)
+	r, r_ok := r.SetString(request.Payload[1].(string), 0)
+	s, s_ok := s.SetString(request.Payload[2].(string), 0)
+
+	if !r_ok || !s_ok {
+		response.Error = INVALID_SIGNATURE
+		return nil
+	}
+
+	_, validNonce := m.nonces[nonce]
+	validSignature := ecdsa.Verify(&m.pubKey, []byte(nonce), r, s)
+
+	if validNonce && validSignature {
+		delete(m.nonces, nonce)
+		response.Error = NO_ERROR
+		response.Payload = make([]interface{}, 2)
+		token := getRand256()
+		m.tokens[token] = true
+
+		response.Payload[0] = token
+		response.Payload[1] = m.settings.CanvasSettings
+	} else {
+		response.Error = INVALID_SIGNATURE
+	}
+
+	return nil
+}
+
+// Get the svg string for the shape identified by a given shape hash, if it exists
+func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) error {
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = INVALID_TOKEN
+		return nil
+	}
+
+	hash := request.Payload[0].(string)
+	shape := m.shapes[hash]
+	if shape == nil {
+		response.Error = INVALID_SHAPE_HASH
+		return nil
+	}
+
+	response.Error = NO_ERROR
+	response.Payload = make([]interface{}, 1)
+	response.Payload[0] = shape.ShapeSvgString
 	return nil
 }
 
@@ -372,22 +524,6 @@ func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
 		m.disseminateToConnectedMiners(blockAndHash)
 	}
 	return nil
-}
-
-// Sends block to all connected miners
-// Makes sure that enough miners are connected; if under minimum, it calls for more
-func (m *Miner) disseminateToConnectedMiners(blockAndHash BlockAndHash) {
-	m.getMiners() // checks all miners, connects to more if needed
-	for minerAddr, minerCon := range m.miners {
-		var isConnected bool
-		var isValid bool
-		minerCon.Call("Miner.PingMiners", "", &isConnected)
-		if isConnected {
-			minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
-		} else {
-			delete(m.miners, minerAddr)
-		}
-	}
 }
 
 // Pings all miners currently listed in the miner map
@@ -424,12 +560,61 @@ func (m *Miner) GetBlockChain(_ignored bool, chainAndLength *ChainAndLength) err
 	return nil
 }
 
-// Get the svg string for the shape identified by a given shape hash, if it exists
-func (m *Miner) GetSvgString(hash string, reply *string) error {
-	shape := m.shapes[hash]
-	if shape != nil {
-		*reply = shape.ShapeSvgString
+// Get the amount of ink remaining associated with the miners pub/priv key pair
+func (m *Miner) GetInk(request *ArtnodeRequest, response *MinerResponse) error {
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = INVALID_TOKEN
+		return nil
 	}
+
+	response.Error = NO_ERROR
+	response.Payload = make([]interface{}, 1)
+	response.Payload[0] = m.inkRemaining
+
+	return nil
+}
+
+// Get the hash of the genesis block
+func (m *Miner) GetGenesisBlock(request *ArtnodeRequest, response *MinerResponse) error {
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = INVALID_TOKEN
+		return nil
+	}
+
+	response.Error = NO_ERROR
+	response.Payload = make([]interface{}, 1)
+	response.Payload[0] = m.settings.GenesisBlockHash
+
+	return nil
+}
+
+// Get a list of shape hashes in a given block
+func (m *Miner) GetShapes(request *ArtnodeRequest, response *MinerResponse) error {
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = INVALID_TOKEN
+		return nil
+	}
+
+	hash := request.Payload[0].(string)
+	block := m.blockchain[hash]
+	if block == nil {
+		response.Error = INVALID_BLOCK_HASH
+		return nil
+	}
+
+	response.Error = NO_ERROR
+	response.Payload = make([]interface{}, 1)
+	shapeHashes := make([]string, len(block.Records))
+	for i, record := range block.Records {
+		shapeHashes[i] = record.Op.ShapeHash
+	}
+
 	return nil
 }
 
@@ -479,6 +664,19 @@ func generateNewKeys() ecdsa.PrivateKey {
 	privKey, err := ecdsa.GenerateKey(c, rand.Reader)
 	checkError(err)
 	return *privKey
+}
+
+// Generates a secure 256-bit nonce/token string for
+// artnode request authentication.
+//
+func getRand256() string {
+	str := make([]rune, 64)
+	maxIndex := big.NewInt(int64(len(alphabet)))
+	for i := range str {
+		index, _ := rand.Int(rand.Reader, maxIndex)
+		str[i] = alphabet[index.Int64()]
+	}
+	return string(str)
 }
 
 // </HELPER METHODS>

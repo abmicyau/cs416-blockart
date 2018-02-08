@@ -13,6 +13,7 @@ import (
 	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
@@ -199,10 +200,35 @@ func (m *Miner) init() {
 	m.tokens = make(map[string]bool)
 	m.miners = make(map[string]*rpc.Client)
 	if len(args) <= 1 {
-		priv := generateNewKeys()
-		m.privKey = priv
-		m.pubKey = priv.PublicKey
+		logger.Fatalln("Missing keys, please generate with: go run generateKeys.go")
+		// Can uncomment for lazy generate, just uncomment the bottom chunk
+		// priv := generateNewKeys()
+		// m.privKey = priv
+		// m.pubKey = priv.PublicKey
 	}
+	// Proper Key Generate
+	privString, _ := hex.DecodeString(args[1])
+	pubString, _ := hex.DecodeString(args[2])
+	privKey, err := x509.ParseECPrivateKey(privString)
+	if checkError(err) != nil {
+		log.Fatalln("Error with Private Key")
+	}
+	pubKey, err := x509.ParsePKIXPublicKey(pubString)
+	if checkError(err) != nil {
+		log.Fatalln("Error with Public Key")
+	}
+	// Verify if keys are correct
+	data := []byte("Hello World")
+	r, s, _ := ecdsa.Sign(rand.Reader, privKey, data)
+	if !ecdsa.Verify(pubKey.(*ecdsa.PublicKey), data, r, s) {
+		logger.Fatalln("Keys don't match, try again")
+	} else {
+		logger.Println("Keys are correct and verified")
+	}
+	m.privKey = *privKey
+	m.pubKey = *pubKey.(*ecdsa.PublicKey)
+	// End of Proper Key Generation
+
 	m.newLongestChain = make(chan bool)
 }
 
@@ -253,7 +279,7 @@ func (m *Miner) getMiners() {
 	var addrSet []net.Addr
 	for minerAddr, minerCon := range m.miners {
 		var isConnected bool
-		minerCon.Call("Miner.PingMiners", "", &isConnected)
+		minerCon.Call("Miner.PingMiner", "", &isConnected)
 		if !isConnected {
 			delete(m.miners, minerAddr)
 		}
@@ -432,9 +458,9 @@ func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) {
 	response := new(MinerResponse)
 	for minerAddr, minerCon := range m.miners {
 		var isConnected bool
-		minerCon.Call("Miner.PingMiners", "", &isConnected)
+		minerCon.Call("Miner.PingMiner", "", &isConnected)
 		if isConnected {
-			minerCon.Call("Miner.SendBlock", request, response)
+			minerCon.Call("Miner.SendNoOpBlock", request, response)
 		} else {
 			delete(m.miners, minerAddr)
 		}
@@ -505,7 +531,7 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
 	return nil
 }
 
-func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error {
+func (m *Miner) SendNoOpBlock(request *MinerRequest, response *MinerResponse) error {
 	logger.Println("Received Block: ", request.Payload[1].(string))
 
 	block := request.Payload[0].(*Block)
@@ -535,7 +561,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 
 // Pings all miners currently listed in the miner map
 // If a connected miner fails to reply, that miner should be removed from the map
-func (m *Miner) PingMiners(payload string, reply *bool) error {
+func (m *Miner) PingMiner(payload string, reply *bool) error {
 	*reply = true
 	return nil
 }
@@ -661,6 +687,7 @@ func checkError(err error) error {
 	return nil
 }
 
+// TODO: CLEANUP will not need to use this function when using keys from command line
 func generateNewKeys() ecdsa.PrivateKey {
 	c := elliptic.P521()
 	privKey, err := ecdsa.GenerateKey(c, rand.Reader)

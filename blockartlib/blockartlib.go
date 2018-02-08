@@ -325,6 +325,8 @@ func (s *Shape) computeInkUsage() (inkUnits uint64) {
 		for _, lineSegment := range s.lineSegments {
 			inkUnits = inkUnits + lineSegment.length()
 		}
+	} else {
+
 	}
 
 	return
@@ -346,7 +348,7 @@ func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 			curSeg := s.lineSegments[i]
 
 			for j := range s.lineSegments {
-				if i != j && linesOverlap(curSeg, s.lineSegments[j]) == true {
+				if i != j && curSeg.intersects(s.lineSegments[j]) == true {
 					valid = false
 					err = InvalidShapeSvgStringError(s.shapeSvgString)
 
@@ -364,28 +366,21 @@ func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 }
 
 func (s *Shape) evaluateSvgString() (err error) {
-	s.commands, err = getCommands(s.shapeSvgString)
-	if err != nil {
+	s.min, s.max = Point{}, Point{}
+	if s.commands, err = getCommands(s.shapeSvgString); err != nil {
 		return
 	}
 
 	vertices := make([]Point, len(s.commands))
 
-	s.min = Point{}
-	s.max = Point{}
-
-	absPos := Point{0, 0}
-	relPos := Point{0, 0}
+	absPos, relPos := Point{0, 0}, Point{0, 0}
 	for i := range s.commands {
 		_command := s.commands[i]
 
 		switch _command.cmdType {
 		case "M":
-			absPos.x = _command.x
-			absPos.y = _command.y
-
-			relPos.x = _command.x
-			relPos.y = _command.y
+			absPos.x, absPos.y = _command.x, _command.y
+			relPos.x, relPos.y = _command.x, _command.y
 
 			vertices[i] = Point{relPos.x, relPos.y}
 		case "H":
@@ -397,8 +392,7 @@ func (s *Shape) evaluateSvgString() (err error) {
 
 			vertices[i] = Point{absPos.x, relPos.y}
 		case "L":
-			relPos.x = _command.x
-			relPos.y = _command.y
+			relPos.x, relPos.y = _command.x, _command.y
 
 			vertices[i] = Point{relPos.x, relPos.y}
 		case "h":
@@ -410,8 +404,7 @@ func (s *Shape) evaluateSvgString() (err error) {
 
 			vertices[i] = Point{relPos.x, relPos.y}
 		case "l":
-			relPos.x = relPos.x + _command.x
-			relPos.y = relPos.y + _command.y
+			relPos.x, relPos.y = relPos.x+_command.x, relPos.y+_command.y
 
 			vertices[i] = Point{relPos.x, relPos.y}
 		}
@@ -435,20 +428,16 @@ func (s *Shape) evaluateSvgString() (err error) {
 	return
 }
 
-func (s *Shape) hasOverlap(shape Shape) (overlap bool) {
+func (s *Shape) hasOverlap(_s Shape) (overlap bool) {
 	s.evaluateSvgString()
+	_s.evaluateSvgString()
 
-	_lineSegments := getLineSegments(s.vertices)
-	lineSegments := getLineSegments(shape.vertices)
-	if s.fill == "transparent" && shape.fill == "transparent" {
-		for i := range lineSegments {
-			lineSegment := lineSegments[i]
-
-			for j := range _lineSegments {
-				_lineSegment := _lineSegments[j]
-
-				overlap = linesOverlap(_lineSegment, lineSegment)
-				if overlap {
+	lineSegments := getLineSegments(s.vertices)
+	_lineSegments := getLineSegments(_s.vertices)
+	if s.fill == "transparent" && _s.fill == "transparent" {
+		for _, _lineSegment := range _lineSegments {
+			for _, lineSegment := range lineSegments {
+				if overlap = lineSegment.intersects(_lineSegment); overlap {
 					break
 				}
 			}

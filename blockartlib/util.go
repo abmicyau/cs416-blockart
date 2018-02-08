@@ -8,6 +8,7 @@ import (
 )
 
 // Represents a command with type(M, H, L, m, h, l, etc.)
+// and specified (x, y) coordinate
 type Command struct {
 	cmdType string
 
@@ -15,7 +16,7 @@ type Command struct {
 	y int64
 }
 
-// Represents a point
+// Represents a point with (x, y) coordinate
 type Point struct {
 	x int64
 	y int64
@@ -26,7 +27,7 @@ func (p Point) inBound(xMax uint32, yMax uint32) bool {
 }
 
 // Represents a line segment with start and end points
-// and equation ax + by = c
+// and implicit equation format ax + by = c
 type LineSegment struct {
 	start Point
 	end   Point
@@ -36,12 +37,49 @@ type LineSegment struct {
 	c int64
 }
 
+// Determines the length of a given line segments
+// rounding to the nearest integer greater than the float
 func (l LineSegment) length() uint64 {
-	a := float64(l.start.x - l.end.x)
-	b := float64(l.start.y - l.end.y)
-	length := math.Sqrt(math.Pow(a, 2) + math.Pow(b, 2))
+	a, b := float64(l.start.x-l.end.x), float64(l.start.y-l.end.y)
+	c := math.Sqrt(math.Pow(a, 2) + math.Pow(b, 2))
 
-	return uint64(math.Ceil(length))
+	return uint64(math.Ceil(c))
+}
+
+// Determines if a point lies on a line segment
+func (l LineSegment) hasPoint(p Point) bool {
+	x1, y1, x2, y2 := l.start.x, l.start.y, l.end.x, l.end.y
+
+	return ((y1 <= p.y && p.y <= y2) || (y1 >= p.y && p.y >= y2)) &&
+		((x1 <= p.x && p.x <= x2) || (x1 >= p.x && p.x >= x2))
+}
+
+// Determines if two line segment intersect within
+// their given start and end points
+func (l LineSegment) intersects(_l LineSegment) bool {
+	var x, y int64
+
+	a1, b1, c1 := l.a, l.b, l.c
+	a2, b2, c2 := _l.a, _l.b, _l.c
+
+	det := a1*b2 - a2*b1
+	if det == 0 {
+		if l.hasPoint(_l.start) || l.hasPoint(_l.end) {
+			return true
+		} else {
+			return false
+		}
+	} else {
+		x = (b2*c1 - b1*c2) / det
+		y = (a1*c2 - a2*c1) / det
+	}
+
+	p := Point{x, y}
+	if l.hasPoint(p) && _l.hasPoint(p) {
+		return true
+	} else {
+		return false
+	}
 }
 
 // Normalizes SVG string removing all spaces and adding commas
@@ -156,11 +194,11 @@ func getCommands(svg string) (commands []Command, err error) {
 	return
 }
 
-// Extracts line segments (in order) from provided vertices
+// Extracts line segments (in order) from provided vertices,
+// where each vertex is connected to the next vertex
 func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
 	for i := range vertices {
-		var v1 Point
-		var v2 Point
+		var v1, v2 Point
 		var lineSegment LineSegment
 
 		v1 = vertices[i]
@@ -181,43 +219,4 @@ func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
 	}
 
 	return
-}
-
-// Determines if two lines intersect within their given start and end points
-func linesOverlap(existLine LineSegment, newLine LineSegment) bool {
-	var x int64
-	var y int64
-
-	a1 := existLine.a
-	b1 := existLine.b
-	c1 := existLine.c
-
-	a2 := newLine.a
-	b2 := newLine.b
-	c2 := newLine.c
-
-	det := a1*b2 - a2*b1
-	if det == 0 {
-		if isBetween(newLine.start, existLine.start, existLine.end) || isBetween(newLine.end, existLine.start, existLine.end) {
-			return true
-		} else {
-			return false
-		}
-	} else {
-		x = (b2*c1 - b1*c2) / det
-		y = (a1*c2 - a2*c1) / det
-	}
-
-	if isBetween(Point{x, y}, existLine.start, existLine.end) &&
-		isBetween(Point{x, y}, newLine.start, newLine.end) {
-		return true
-	} else {
-		return false
-	}
-}
-
-// Determines if a point lies on the line between start and end points
-func isBetween(p Point, start Point, end Point) bool {
-	return ((start.y <= p.y && p.y <= end.y) || (start.y >= p.y && p.y >= end.y)) &&
-		((start.x <= p.x && p.x <= end.x) || (start.x >= p.x && p.x >= end.x))
 }

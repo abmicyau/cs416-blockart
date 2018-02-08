@@ -114,24 +114,24 @@ func TestLineOverlap(t *testing.T) {
 	lineSegments3 := getLineSegments(shape3.vertices)
 
 	// Test parallel lines
-	if linesOverlap(lineSegments1[0], lineSegments2[0]) != true {
+	if lineSegments1[0].intersects(lineSegments2[0]) != true {
 		t.Error("Expected true, got false")
 	}
 
-	if linesOverlap(lineSegments1[0], lineSegments2[1]) != true {
+	if lineSegments1[0].intersects(lineSegments2[1]) != true {
 		t.Error("Expected true, got false")
 	}
 
 	// Test non-parallel lines
-	if linesOverlap(lineSegments1[0], lineSegments3[0]) != true {
+	if lineSegments1[0].intersects(lineSegments3[0]) != true {
 		t.Error("Expected true, got false")
 	}
 
-	if linesOverlap(lineSegments1[0], lineSegments3[2]) != true {
+	if lineSegments1[0].intersects(lineSegments3[2]) != true {
 		t.Error("Expected true, got false")
 	}
 
-	if linesOverlap(lineSegments1[0], lineSegments3[1]) != false {
+	if lineSegments1[0].intersects(lineSegments3[1]) != false {
 		t.Error("Expected false, got true")
 	}
 }

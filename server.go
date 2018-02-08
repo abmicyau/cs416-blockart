@@ -80,7 +80,23 @@ type MinerSettings struct {
 
 // Settings for an instance of the BlockArt project/network.
 type MinerNetSettings struct {
-	MinerSettings
+	// Hash of the very first (empty) block in the chain.
+	GenesisBlockHash string `json:"genesis-block-hash"`
+
+	// The minimum number of ink miners that an ink miner should be
+	// connected to.
+	MinNumMinerConnections uint8 `json:"min-num-miner-connections"`
+
+	// Mining ink reward per op and no-op blocks (>= 1)
+	InkPerOpBlock   uint32 `json:"ink-per-op-block"`
+	InkPerNoOpBlock uint32 `json:"ink-per-no-op-block"`
+
+	// Number of milliseconds between heartbeat messages to the server.
+	HeartBeat uint32 `json:"heartbeat"`
+
+	// Proof of work difficulty: number of zeroes in prefix (>=0)
+	PoWDifficultyOpBlock   uint8 `json:"pow-difficulty-op-block"`
+	PoWDifficultyNoOpBlock uint8 `json:"pow-difficulty-no-op-block"`
 
 	// Canvas settings
 	CanvasSettings CanvasSettings `json:"canvas-settings"`
@@ -194,6 +210,8 @@ func (s *RServer) Register(m MinerInfo, r *MinerNetSettings) error {
 	allMiners.Lock()
 	defer allMiners.Unlock()
 
+	// fmt.Println(m.Address)
+
 	k := pubKeyToString(m.Key)
 	if miner, exists := allMiners.all[k]; exists {
 		return KeyAlreadyRegisteredError(miner.Address.String())
@@ -261,7 +279,11 @@ func (s *RServer) GetNodes(key ecdsa.PublicKey, addrSet *[]net.Addr) error {
 		minerAddresses[n-1], minerAddresses[randIndex] = minerAddresses[randIndex], minerAddresses[n-1]
 	}
 
-	*addrSet = minerAddresses[:config.NumMinerToReturn]
+	n := len(minerAddresses)
+	if int(config.NumMinerToReturn) < n {
+		n = int(config.NumMinerToReturn)
+	}
+	*addrSet = minerAddresses[:n]
 
 	return nil
 }

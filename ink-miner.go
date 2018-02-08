@@ -13,15 +13,17 @@ import (
 	"crypto/elliptic"
 	"crypto/md5"
 	"crypto/rand"
+	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
-    "math/big"
+  "math/big"
 	"fmt"
 	"log"
 	"net"
 	"net/rpc"
 	"os"
 	"strings"
+	"time"
 )
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -101,21 +103,24 @@ type MinerNetSettings struct {
     CanvasSettings CanvasSettings
 }
 
+// Used to send heartbeat to the server just shy of 1 second each beat
+const TIME_BUFFER uint32 = 500
+
 type Miner struct {
-	localAddr                 string
+	logger                    *log.Logger
+	localAddr                 net.Addr
 	serverAddr                string
-	miners                    []*rpc.Client
+	serverConn                *rpc.Client
+	miners                    map[string]*rpc.Client
 	blockchain                map[string]*Block
 	longestChainLastBlockHash string
-	genesisHash               string
-	nHashZeroes               uint32
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
-    shapes                    map[string]*Shape
-    inkRemaining              uint32
-    settings                  MinerNetSettings
-    nonces                    map[string]bool
-    tokens                    map[string]bool
+  shapes                    map[string]*Shape
+  inkRemaining              uint32
+  settings                  *MinerNetSettings
+  nonces                    map[string]bool
+  tokens                    map[string]bool
 }
 
 type Block struct {
@@ -137,8 +142,8 @@ type Shape struct {
 type Operation struct {
 	Type        OpType
 	Shape       Shape
-    ShapeHash   string
-    InkCost     uint32
+  ShapeHash   string
+  InkCost     uint32
 	ValidateNum uint8
 }
 
@@ -146,6 +151,21 @@ type OperationRecord struct {
 	Op     Operation
 	OpSig  string
 	PubKey ecdsa.PublicKey
+}
+
+type MinerInfo struct {
+	Address net.Addr
+	Key     ecdsa.PublicKey
+}
+
+type BlockAndHash struct {
+	Blck      Block
+	BlockHash string
+}
+
+type ChainAndLength struct {
+	BlockChain       []Block
+	LongestBlockHash string
 }
 
 // </TYPE DECLARATIONS>
@@ -158,10 +178,20 @@ var (
 
 func main() {
 	logger = log.New(os.Stdout, "[Initializing]\n", log.Lshortfile)
-
+	gob.Register(&elliptic.CurveParams{})
+	gob.Register(&net.TCPAddr{})
 	miner := new(Miner)
 	miner.init()
-	go miner.listenRPC()
+	miner.listenRPC()
+	miner.registerWithServer()
+	miner.getMiners()
+
+	// TODO: Get Nodes State Machine
+
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:46563") // for manual adding of miners right now
+	//miner.minerAddrs = append(miner.minerAddrs, "127.0.0.1:40883")
+
+	miner.getLongestChain()
 	for {
 		miner.mineNoOpBlock()
 	}
@@ -170,13 +200,11 @@ func main() {
 func (m *Miner) init() {
 	args := os.Args[1:]
 	m.serverAddr = args[0]
-	m.nHashZeroes = uint32(5)
-	m.genesisHash = "01234567890123456789012345678901"
 	m.blockchain = make(map[string]*Block)
-    m.shapes = make(map[string]*Shape)
-    m.nonces = make(map[string]bool)
-    m.tokens = make(map[string]bool)
-
+  m.shapes = make(map[string]*Shape)
+  m.nonces = make(map[string]bool)
+  m.tokens = make(map[string]bool)
+	m.miners = make(map[string]*rpc.Client)
 	if len(args) <= 1 {
 		priv := generateNewKeys()
 		m.privKey = priv
@@ -185,18 +213,94 @@ func (m *Miner) init() {
 }
 
 func (m *Miner) listenRPC() {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:8080")
+	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
-
 	rpc.Register(m)
+	m.localAddr = listener.Addr()
+	logger.Println("Listening on: ", listener.Addr().String())
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			checkError(err)
+			logger.Println("New connection from " + conn.RemoteAddr().String())
+			go rpc.ServeConn(conn)
+		}
+	}()
+}
 
+// Ink miner registers their address and public key to the server and starts sending heartbeats
+func (m *Miner) registerWithServer() {
+	serverConn, err := rpc.Dial("tcp", m.serverAddr)
+	settings := new(MinerNetSettings)
+	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, settings)
+	if checkError(err) != nil {
+		//TODO: Crashing for now, will need to revisit if there is any softer way to handle the error
+		log.Fatal("Couldn't Register to Server")
+	}
+	m.serverConn = serverConn
+	m.settings = settings
+	go m.startHeartBeats()
+}
+
+// Sends heartbeats every half second to the server to maintain connection
+func (m *Miner) startHeartBeats() {
+	var ignored bool
+	m.serverConn.Call("RServer.HeartBeat", m.pubKey, &ignored)
 	for {
-		conn, err := listener.Accept()
-		checkError(err)
-		logger.Println("New connection from " + conn.RemoteAddr().String())
-		go rpc.ServeConn(conn)
+		time.Sleep(time.Duration(m.settings.HeartBeat-TIME_BUFFER) * time.Millisecond)
+		m.serverConn.Call("RServer.HeartBeat", m.pubKey, &ignored)
+	}
+}
+
+// Gets miners from server if below MinNumMinerConnections
+func (m *Miner) getMiners() {
+  var addrSet []net.Addr
+	for minerAddr, minerCon := range m.miners {
+		var isConnected bool
+		minerCon.Call("Miner.PingMiners", "", &isConnected)
+		if !isConnected {
+			delete(m.miners, minerAddr)
+		}
+	}
+	if len(m.miners) < int(m.settings.MinNumMinerConnections) {
+		m.serverConn.Call("RServer.GetNodes", m.pubKey, &addrSet)
+		m.connectToMiners(addrSet)
+		logger.Println(addrSet, m.miners)
+	}
+}
+
+// Establishes RPC connections with miners in addrs array
+func (m *Miner) connectToMiners(addrs []net.Addr) {
+	for _, minerAddr := range addrs {
+		if m.miners[minerAddr.String()] == nil {
+			minerConn, err := rpc.Dial("tcp", minerAddr.String())
+			checkError(err)
+			m.miners[minerAddr.String()] = minerConn
+		}
+	}
+}
+
+func (m *Miner) getLongestChain() {
+	longestChainAndLength := new(ChainAndLength)
+	for _, minerCon := range m.miners {
+		var ignored bool
+		chainAndLength := new(ChainAndLength)
+		minerCon.Call("Miner.GetBlockChain", ignored, &chainAndLength)
+		if len(chainAndLength.BlockChain) > len(longestChainAndLength.BlockChain) {
+			longestChainAndLength = chainAndLength
+		}
+	}
+	if len(longestChainAndLength.LongestBlockHash) > 1 {
+		currHash := longestChainAndLength.LongestBlockHash
+		for i := 0; i < len(longestChainAndLength.BlockChain); i++ {
+			// Should be from Latest block to Earliest/Genesis
+			m.blockchain[currHash] = &longestChainAndLength.BlockChain[i]
+			currHash = longestChainAndLength.BlockChain[i].PrevHash
+		}
+		m.longestChainLastBlockHash = longestChainAndLength.LongestBlockHash
+		logger.Println("Start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
 	}
 }
 
@@ -208,25 +312,29 @@ func (m *Miner) mineNoOpBlock() {
 	var blockNo uint32
 
 	if m.longestChainLastBlockHash == "" {
-		prevHash = m.genesisHash
+		prevHash = m.settings.GenesisBlockHash
 		blockNo = 0
 	} else {
 		prevHash = m.longestChainLastBlockHash
 		blockNo = m.blockchain[prevHash].BlockNo + 1
 	}
 
+	// TODO: When a new block comes that adds to longest chain, stop mining and switch longest chain
 	for {
-		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), ecdsa.PublicKey{}, nonce}
+		block := &Block{blockNo, prevHash, make([]OperationRecord, 0), m.pubKey, nonce}
 		encodedBlock, err := json.Marshal(block)
 		if err != nil {
 			panic(err)
 		}
 		blockHash := md5Hash(encodedBlock)
-		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.nHashZeroes))) {
+		if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) {
 			logger.Println(block, blockHash)
 			m.blockchain[blockHash] = block
+			logger.Println(m.blockchain)
 			m.longestChainLastBlockHash = blockHash
-            m.update(block)
+      m.update(block)
+			blockAndHash := &BlockAndHash{*block, blockHash}
+			m.disseminateToConnectedMiners(*blockAndHash)
 			return
 		} else {
 			nonce++
@@ -310,6 +418,22 @@ func (m *Miner) revert(block *Block) {
     }
 }
 
+// Sends block to all connected miners
+// Makes sure that enough miners are connected; if under minimum, it calls for more
+func (m *Miner) disseminateToConnectedMiners(blockAndHash BlockAndHash) {
+	m.getMiners() // checks all miners, connects to more if needed
+	for minerAddr, minerCon := range m.miners {
+		var isConnected bool
+		var isValid bool
+		minerCon.Call("Miner.PingMiners", "", &isConnected)
+		if isConnected {
+			minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+		} else {
+			delete(m.miners, minerAddr)
+		}
+	}
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <RPC METHODS>
 
@@ -371,6 +495,64 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
     response.Error = NO_ERROR
     response.Payload = make([]interface{}, 1)
     response.Payload[0] = shape.ShapeSvgString
+		return nil
+}
+
+func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
+	logger.Println("Received Block: ", blockAndHash.BlockHash)
+
+	// TODO:
+	//		Validate Block
+	//		If Valid, add to block chain
+	//		Else return invalid
+
+	// If new block, disseminate
+	if _, exists := m.blockchain[blockAndHash.BlockHash]; !exists {
+		m.blockchain[blockAndHash.BlockHash] = &blockAndHash.Blck
+		// compute longest chain
+		newChain := lengthLongestChain(blockAndHash.BlockHash, m.blockchain)
+		oldChain := lengthLongestChain(m.longestChainLastBlockHash, m.blockchain)
+		if newChain > oldChain {
+			m.longestChainLastBlockHash = blockAndHash.BlockHash
+		}
+		// TODO: Else, reply back with our longest chain to sync up with sender
+
+		//		Disseminate Block to connected Miners
+		m.disseminateToConnectedMiners(blockAndHash)
+	}
+	return nil
+}
+
+// Pings all miners currently listed in the miner map
+// If a connected miner fails to reply, that miner should be removed from the map
+func (m *Miner) PingMiners(payload string, reply *bool) error {
+	*reply = true
+	return nil
+}
+
+func (m *Miner) GetBlockChain(_ignored bool, chainAndLength *ChainAndLength) error {
+	logger.Println("GetBlockChain")
+	if len(m.longestChainLastBlockHash) < 1 {
+		return nil
+	}
+
+	longestChainLength := m.blockchain[m.longestChainLastBlockHash].BlockNo + 1
+	longestChain := make([]Block, longestChainLength)
+
+	var currhash = m.longestChainLastBlockHash
+	for i := 0; i < int(longestChainLength); i++ {
+		longestChain[i] = *m.blockchain[currhash]
+		currhash = m.blockchain[currhash].PrevHash
+		// if block, exists := m.blockchain[currhash]; exists {
+		// 	longestChain = append(longestChain, *block)
+		// 	currhash = block.PrevHash
+		// 	length++
+		// } else {
+		// 	break
+		// }
+	}
+	chainAndLength.LongestBlockHash = m.longestChainLastBlockHash
+	chainAndLength.BlockChain = longestChain
 
 	return nil
 }
@@ -439,6 +621,25 @@ func (m *Miner) GetShapes(request *ArtnodeRequest, response *MinerResponse) erro
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>
 
+// Counts the length of the block chain given a block hash
+func lengthLongestChain(blockhash string, blockchain map[string]*Block) int {
+	var length int
+	if len(blockhash) < 1 {
+		return length
+	}
+	var currhash = blockhash
+	for {
+		prevBlockHash := blockchain[currhash].PrevHash
+		if _, exists := blockchain[prevBlockHash]; exists {
+			currhash = prevBlockHash
+			length++
+		} else {
+			break
+		}
+	}
+	return length
+}
+
 // Computes the md5 hash of a given byte slice
 func md5Hash(data []byte) string {
 	h := md5.New()
@@ -456,7 +657,7 @@ func checkError(err error) error {
 }
 
 func generateNewKeys() ecdsa.PrivateKey {
-	c := elliptic.P224()
+	c := elliptic.P521()
 	privKey, err := ecdsa.GenerateKey(c, rand.Reader)
 	checkError(err)
 	return *privKey

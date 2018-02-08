@@ -66,6 +66,10 @@ type MinerResponse struct {
 	Payload []interface{}
 }
 
+type MinerRequest struct {
+	Payload []interface{}
+}
+
 type ArtnodeRequest struct {
 	Token   string
 	Payload []interface{}
@@ -122,6 +126,7 @@ type Miner struct {
 	settings                  *MinerNetSettings
 	nonces                    map[string]bool
 	tokens                    map[string]bool
+	newLongestChain           chan bool
 }
 
 type Block struct {
@@ -159,16 +164,6 @@ type MinerInfo struct {
 	Key     ecdsa.PublicKey
 }
 
-type BlockAndHash struct {
-	Blck      Block
-	BlockHash string
-}
-
-type ChainAndLength struct {
-	BlockChain       []Block
-	LongestBlockHash string
-}
-
 // </TYPE DECLARATIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -181,13 +176,15 @@ func main() {
 	logger = log.New(os.Stdout, "[Initializing]\n", log.Lshortfile)
 	gob.Register(&elliptic.CurveParams{})
 	gob.Register(&net.TCPAddr{})
+	gob.Register([]Block{})
+	gob.Register(&Block{})
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()
 	miner.registerWithServer()
 	miner.getMiners()
 	miner.getLongestChain()
-	//logger = log.SetPrefix("[Mining]\n")
+	logger.SetPrefix("[Mining]\n")
 	for {
 		miner.mineNoOpBlock()
 	}
@@ -264,7 +261,7 @@ func (m *Miner) getMiners() {
 	if len(m.miners) < int(m.settings.MinNumMinerConnections) {
 		m.serverConn.Call("RServer.GetNodes", m.pubKey, &addrSet)
 		m.connectToMiners(addrSet)
-		logger.Println(addrSet, m.miners)
+		logger.Println("Current set of Addresses and Miners: ", addrSet, m.miners)
 	}
 }
 
@@ -280,24 +277,29 @@ func (m *Miner) connectToMiners(addrs []net.Addr) {
 }
 
 func (m *Miner) getLongestChain() {
-	longestChainAndLength := new(ChainAndLength)
+	//longestChainAndLength := new(ChainAndLength)
+	response := new(MinerResponse)
+	request := new(MinerRequest)
 	for _, minerCon := range m.miners {
-		var ignored bool
-		chainAndLength := new(ChainAndLength)
-		minerCon.Call("Miner.GetBlockChain", ignored, &chainAndLength)
-		if len(chainAndLength.BlockChain) > len(longestChainAndLength.BlockChain) {
-			longestChainAndLength = chainAndLength
+		singleResponse := new(MinerResponse)
+		minerCon.Call("Miner.GetBlockChain", request, singleResponse)
+		if len(response.Payload) < 1 {
+			response = singleResponse
+		} else if len(singleResponse.Payload[1].([]Block)) > len(response.Payload[1].([]Block)) {
+			response = singleResponse
 		}
 	}
-	if len(longestChainAndLength.LongestBlockHash) > 1 {
-		currHash := longestChainAndLength.LongestBlockHash
-		for i := 0; i < len(longestChainAndLength.BlockChain); i++ {
+	if len(response.Payload) > 1 {
+		longestBlockHash := response.Payload[0].(string)
+		longestBlockChain := response.Payload[1].([]Block)
+		currHash := longestBlockHash
+		for i := 0; i < len(longestBlockChain); i++ {
 			// Should be from Latest block to Earliest/Genesis
-			m.blockchain[currHash] = &longestChainAndLength.BlockChain[i]
-			currHash = longestChainAndLength.BlockChain[i].PrevHash
+			m.blockchain[currHash] = &longestBlockChain[i]
+			currHash = longestBlockChain[i].PrevHash
 		}
-		m.longestChainLastBlockHash = longestChainAndLength.LongestBlockHash
-		logger.Println("Start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
+		m.longestChainLastBlockHash = longestBlockHash
+		logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
 	}
 }
 
@@ -318,7 +320,7 @@ func (m *Miner) mineNoOpBlock() {
 	for {
 		select {
 		case <-m.newLongestChain:
-			logger.Println("Got a new longest chain!")
+			logger.Println("Got a new longest chain, switching to: ", m.longestChainLastBlockHash)
 			prevHash = m.longestChainLastBlockHash
 			blockNo = m.blockchain[prevHash].BlockNo + 1
 		default:
@@ -329,13 +331,12 @@ func (m *Miner) mineNoOpBlock() {
 			}
 			blockHash := md5Hash(encodedBlock)
 			if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) {
-				logger.Println(block, blockHash)
+				logger.Println("Found a new Block!: ", block, blockHash)
 				m.blockchain[blockHash] = block
-				logger.Println(m.blockchain)
+				logger.Println("Current BlockChainMap: ", m.blockchain)
 				m.longestChainLastBlockHash = blockHash
 				m.update(block)
-				blockAndHash := &BlockAndHash{*block, blockHash}
-				m.disseminateToConnectedMiners(*blockAndHash)
+				m.disseminateToConnectedMiners(block, blockHash)
 				return
 			} else {
 				nonce++
@@ -422,14 +423,18 @@ func (m *Miner) revert(block *Block) {
 
 // Sends block to all connected miners
 // Makes sure that enough miners are connected; if under minimum, it calls for more
-func (m *Miner) disseminateToConnectedMiners(blockAndHash BlockAndHash) {
+func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) {
 	m.getMiners() // checks all miners, connects to more if needed
+	request := new(MinerRequest)
+	request.Payload = make([]interface{}, 2)
+	request.Payload[0] = block
+	request.Payload[1] = blockHash
+	response := new(MinerResponse)
 	for minerAddr, minerCon := range m.miners {
 		var isConnected bool
-		var isValid bool
 		minerCon.Call("Miner.PingMiners", "", &isConnected)
 		if isConnected {
-			minerCon.Call("Miner.SendBlock", blockAndHash, &isValid)
+			minerCon.Call("Miner.SendBlock", request, response)
 		} else {
 			delete(m.miners, minerAddr)
 		}
@@ -500,28 +505,30 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
 	return nil
 }
 
-func (m *Miner) SendBlock(blockAndHash BlockAndHash, isValid *bool) error {
-	logger.Println("Received Block: ", blockAndHash.BlockHash)
+func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error {
+	logger.Println("Received Block: ", request.Payload[1].(string))
 
+	block := request.Payload[0].(*Block)
+	blockHash := request.Payload[1].(string)
 	// TODO:
 	//		Validate Block
 	//		If Valid, add to block chain
 	//		Else return invalid
 
 	// If new block, disseminate
-	if _, exists := m.blockchain[blockAndHash.BlockHash]; !exists {
-		m.blockchain[blockAndHash.BlockHash] = &blockAndHash.Blck
+	if _, exists := m.blockchain[blockHash]; !exists {
+		m.blockchain[blockHash] = block
 		// compute longest chain
-		newChain := lengthLongestChain(blockAndHash.BlockHash, m.blockchain)
+		newChain := lengthLongestChain(blockHash, m.blockchain)
 		oldChain := lengthLongestChain(m.longestChainLastBlockHash, m.blockchain)
 		if newChain > oldChain {
-			m.longestChainLastBlockHash = blockAndHash.BlockHash
+			m.longestChainLastBlockHash = blockHash
 			m.newLongestChain <- true
 		} // TODO: else, if equal, pick the largest hash = random
 		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners
-		m.disseminateToConnectedMiners(blockAndHash)
+		m.disseminateToConnectedMiners(block, blockHash)
 	}
 	return nil
 }
@@ -533,7 +540,7 @@ func (m *Miner) PingMiners(payload string, reply *bool) error {
 	return nil
 }
 
-func (m *Miner) GetBlockChain(_ignored bool, chainAndLength *ChainAndLength) error {
+func (m *Miner) GetBlockChain(request *MinerRequest, response *MinerResponse) error {
 	logger.Println("GetBlockChain")
 	if len(m.longestChainLastBlockHash) < 1 {
 		return nil
@@ -546,16 +553,11 @@ func (m *Miner) GetBlockChain(_ignored bool, chainAndLength *ChainAndLength) err
 	for i := 0; i < int(longestChainLength); i++ {
 		longestChain[i] = *m.blockchain[currhash]
 		currhash = m.blockchain[currhash].PrevHash
-		// if block, exists := m.blockchain[currhash]; exists {
-		// 	longestChain = append(longestChain, *block)
-		// 	currhash = block.PrevHash
-		// 	length++
-		// } else {
-		// 	break
-		// }
 	}
-	chainAndLength.LongestBlockHash = m.longestChainLastBlockHash
-	chainAndLength.BlockChain = longestChain
+	response.Error = NO_ERROR
+	response.Payload = make([]interface{}, 2)
+	response.Payload[0] = m.longestChainLastBlockHash
+	response.Payload[1] = longestChain
 
 	return nil
 }

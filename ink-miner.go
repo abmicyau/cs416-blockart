@@ -414,19 +414,19 @@ func (m *Miner) update(block *Block) {
 		op := record.Op
 		if op.Type == ADD {
 			m.shapes[op.ShapeHash] = &op.Shape
-			if strings.Compare(record.PubKeyString, m.pubKeyString) == 0 {
+			if record.PubKeyString == m.pubKeyString {
 				m.inkRemaining -= op.InkCost
 			}
 		} else {
 			delete(m.shapes, op.ShapeHash)
-			if strings.Compare(record.PubKeyString, m.pubKeyString) == 0 {
+			if record.PubKeyString == m.pubKeyString {
 				m.inkRemaining += op.InkCost
 			}
 		}
 	}
 
 	// add ink for the newly mined block if it was mined by this miner
-	if strings.Compare(block.PubKeyString, m.pubKeyString) == 0 {
+	if block.PubKeyString == m.pubKeyString {
 		if len(block.Records) == 0 {
 			m.inkRemaining += m.settings.InkPerNoOpBlock
 		} else {
@@ -442,18 +442,18 @@ func (m *Miner) revert(block *Block) {
 		op := record.Op
 		if op.Type == REMOVE {
 			m.shapes[op.ShapeHash] = &op.Shape
-			if strings.Compare(record.PubKeyString, m.pubKeyString) == 0 {
+			if record.PubKeyString == m.pubKeyString {
 				m.inkRemaining -= op.InkCost
 			}
 		} else {
 			delete(m.shapes, op.ShapeHash)
-			if strings.Compare(record.PubKeyString, m.pubKeyString) == 0 {
+			if record.PubKeyString == m.pubKeyString {
 				m.inkRemaining += op.InkCost
 			}
 		}
 	}
 
-	if strings.Compare(block.PubKeyString, m.pubKeyString) == 0 {
+	if block.PubKeyString == m.pubKeyString {
 		if len(block.Records) == 0 {
 			m.inkRemaining -= m.settings.InkPerNoOpBlock
 		} else {
@@ -675,7 +675,7 @@ func (m *Miner) lengthLongestChain(blockhash string) int {
 		prevBlockHash := m.blockchain[currhash].PrevHash
 		if _, exists := m.blockchain[prevBlockHash]; exists {
 			currhash = prevBlockHash
-		} else if strings.Compare(prevBlockHash, m.settings.GenesisBlockHash) == 0 {
+		} else if prevBlockHash == m.settings.GenesisBlockHash {
 			break
 		} else {
 			// Case where the last block in this chain isn't the Genesis one
@@ -691,7 +691,7 @@ func (m *Miner) validateHash(block Block, blockHash string) bool {
 		panic(err)
 	}
 	newBlockHash := md5Hash(encodedBlock)
-	if strings.HasSuffix(newBlockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) && strings.Compare(blockHash, newBlockHash) == 0 {
+	if strings.HasSuffix(newBlockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) && blockHash == newBlockHash {
 		// logger.Println("Received Block hashes to correct hash")
 		return true
 	}

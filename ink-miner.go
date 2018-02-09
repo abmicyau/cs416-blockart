@@ -509,7 +509,7 @@ func (m *Miner) switchBranches(oldBlockHash, newBlockHash string) {
         newBlock = m.blockchain[newBlock.PrevHash]
         oldBlock = m.blockchain[oldBlock.PrevHash]
         if newBlock.PrevHash == oldBlock.PrevHash {
-            continue
+            break
         }
     }
 

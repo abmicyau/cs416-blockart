@@ -1,11 +1,15 @@
 package blockartlib
 
 import (
+	"errors"
 	"math"
 	"regexp"
 	"strconv"
 	"strings"
 )
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <OBJECT DEFINTIONS>
 
 // Represents a command with type(M, H, L, m, h, l, etc.)
 // and specified (x, y) coordinate
@@ -40,10 +44,14 @@ type LineSegment struct {
 // Determines the length of a given line segments
 // rounding to the nearest integer greater than the float
 func (l LineSegment) length() uint64 {
-	a, b := float64(l.start.x-l.end.x), float64(l.start.y-l.end.y)
-	c := math.Sqrt(math.Pow(a, 2) + math.Pow(b, 2))
+	if l.start == l.end {
+		return 1
+	} else {
+		a, b := float64(l.start.x-l.end.x), float64(l.start.y-l.end.y)
+		c := math.Sqrt(math.Pow(a, 2) + math.Pow(b, 2))
 
-	return uint64(math.Ceil(c))
+		return uint64(math.Ceil(c))
+	}
 }
 
 // Determines if a point lies on a line segment
@@ -54,9 +62,33 @@ func (l LineSegment) hasPoint(p Point) bool {
 		((x1 <= p.x && p.x <= x2) || (x1 >= p.x && p.x >= x2))
 }
 
-// Determines if two line segment intersect within
-// their given start and end points
-func (l LineSegment) intersects(_l LineSegment) bool {
+// Determines if two line segments are parallel
+func (l LineSegment) isColinear(_l LineSegment) bool {
+	a1, b1, c1 := l.a, l.b, l.c
+	a2, b2, c2 := _l.a, _l.b, _l.c
+
+	if a1 == a2 && b1 == b2 && c1 == c2 {
+		return true
+	} else if a1 == -1*a2 && b1 == -1*b2 && c1 == -1*c2 {
+		return true
+	} else {
+		return false
+	}
+}
+
+func (l LineSegment) hasColinearIntersect(_l LineSegment) bool {
+	a1, b1 := l.a, l.b
+	a2, b2 := _l.a, _l.b
+
+	det := a1*b2 - a2*b1
+	if det == 0 && (l.hasPoint(_l.start) || l.hasPoint(_l.end)) {
+		return true
+	} else {
+		return false
+	}
+}
+
+func (l LineSegment) getIntersect(_l LineSegment) (point Point, err error) {
 	var x, y int64
 
 	a1, b1, c1 := l.a, l.b, l.c
@@ -65,10 +97,12 @@ func (l LineSegment) intersects(_l LineSegment) bool {
 	det := a1*b2 - a2*b1
 	if det == 0 {
 		if l.hasPoint(_l.start) || l.hasPoint(_l.end) {
-			return true
+			err = errors.New("Lines are colinear.")
 		} else {
-			return false
+			err = errors.New("Lines are parallel but not colinear.")
 		}
+
+		return
 	} else {
 		x = (b2*c1 - b1*c2) / det
 		y = (a1*c2 - a2*c1) / det
@@ -76,11 +110,32 @@ func (l LineSegment) intersects(_l LineSegment) bool {
 
 	p := Point{x, y}
 	if l.hasPoint(p) && _l.hasPoint(p) {
+		point = p
+	} else {
+		err = errors.New("No intersect exists.")
+	}
+
+	return
+}
+
+// Determines if two line segment intersect within
+// their given start and end points
+func (l LineSegment) intersects(_l LineSegment) bool {
+	colinear := l.isColinear(_l)
+	if colinear && l.hasColinearIntersect(_l) {
+		return true
+	} else if _, err := l.getIntersect(_l); err == nil {
 		return true
 	} else {
 		return false
 	}
 }
+
+// </OBJECT DEFINTIONS>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <FUNCTIONS>
 
 // Normalizes SVG string removing all spaces and adding commas
 func normalizeSvgString(svg string) (normSvg string) {
@@ -180,7 +235,7 @@ func getCommands(svg string) (commands []Command, err error) {
 			_commands = append(_commands, _command)
 		}
 
-		normSvg = strings.TrimLeft(normSvg, cmdString)
+		normSvg = strings.Replace(normSvg, cmdString, "", 1)
 		normSvg = strings.Trim(normSvg, " ")
 		if normSvg == "" {
 			break
@@ -192,6 +247,40 @@ func getCommands(svg string) (commands []Command, err error) {
 	}
 
 	return
+}
+
+func vertexExists(v Point, vertices []Point) bool {
+	for _, vertex := range vertices {
+		if v.x == vertex.x && v.y == vertex.y {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Extracts line segment from 2 vertices
+func getLineSegment(v1 Point, v2 Point) (lineSegment LineSegment) {
+	lineSegment.start = v1
+	lineSegment.end = v2
+
+	lineSegment.a = v2.y - v1.y
+	lineSegment.b = v1.x - v2.x
+	lineSegment.c = lineSegment.a*v1.x + lineSegment.b*v1.y
+
+	return
+}
+
+func segmentExists(lineSegment LineSegment, lineSegments []LineSegment) bool {
+	for _, _lineSegment := range lineSegments {
+		if lineSegment.start == _lineSegment.start && lineSegment.end == _lineSegment.end {
+			return true
+		} else if lineSegment.start == _lineSegment.end && lineSegment.end == _lineSegment.start {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Extracts line segments (in order) from provided vertices,
@@ -220,3 +309,107 @@ func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
 
 	return
 }
+
+// Computes the total length of all segments
+func computePerimeter(lineSegments []LineSegment) (perimeter uint64) {
+	var computedSegments []LineSegment
+
+	for _, lineSegment := range lineSegments {
+		if !segmentExists(lineSegment, computedSegments) {
+			computedSegments = append(computedSegments, lineSegment)
+
+			perimeter = perimeter + lineSegment.length()
+		}
+	}
+
+	return
+}
+
+// Computes the regular geometric area of polygon
+// NOTE: This computes the 'geometric' area, but which doesnt match the actual pixel-based area
+func computeGeoArea(vertices []Point) uint64 {
+	var area int64
+	for i, v1 := range vertices {
+		var v2 Point
+		if i == len(vertices)-1 {
+			v2 = vertices[0]
+		} else {
+			v2 = vertices[i+1]
+		}
+
+		area = area + (v1.x*v2.y - v2.x*v1.y)
+	}
+
+	return uint64(area / 2)
+}
+
+// Computes the total area within a polygon using a scanline
+// descending down the y-axis
+// NOTE: This computes the actual number of pixels required to draw shape
+// Doesn't exlude the actual line segments
+func computePixelArea(min Point, max Point, vertices []Point, lineSegments []LineSegment) (area uint64) {
+	for y := min.y; y <= max.y; y++ {
+		var intersects []Point
+
+		scanLine := getLineSegment(Point{min.x, y}, Point{max.x, y})
+
+		// Check intersections with all line segments
+		for _, l := range lineSegments {
+			if scanLine.isColinear(l) { // If parallel, extract the start and end points
+				intersects = append(intersects, l.start, l.end)
+			} else { // Get intersection
+				hasIntersect := l.intersects(scanLine)
+				if intersect, err := l.getIntersect(scanLine); hasIntersect && err == nil {
+					intersects = append(intersects, intersect)
+				}
+			}
+		}
+
+		/*
+			Compute the lengths for all line segments generated by intersects on scanline.
+
+			Example of cases (where the letters are intersects/vertices):
+			*Joint + non-vertices*
+				ABBC 		 -> AB BC 				 [Edge then joint then edge]
+				{B is a shared vertex}
+
+			*Parallel path and non-vertices*
+				ABBCCDDA -> AB BC CD DA    [Rectangle]
+				{A B C D are shared vertices}
+
+				AABBC 	 -> AB BC 				 [Parallel line then edge]
+				{A B are shared vertices}
+
+			*Non-vertices*
+				ABCDEF 	 -> AB CD	EF			 [Any polygon where scanline not on vertices]
+		*/
+		if len(intersects) > 1 {
+			var computedSegments []LineSegment
+
+			i := 0
+			for {
+				lineSegment := getLineSegment(intersects[i], intersects[i+1])
+
+				if lineSegment.start == lineSegment.end { // If both vertices are same point, incremement by one
+					i = i + 1
+				} else if segmentExists(lineSegment, computedSegments) { // If we already calculated this segment, skip
+					i = i + 2
+				} else { // Otherwise, we have a valid segment, add length to area
+					computedSegments = append(computedSegments, lineSegment)
+
+					area = area + lineSegment.length()
+					i = i + 2
+				}
+
+				if len(intersects) <= (i + 1) {
+					break
+				}
+			}
+		}
+	}
+
+	return
+}
+
+// </FUNCTIONS>
+////////////////////////////////////////////////////////////////////////////////////////////

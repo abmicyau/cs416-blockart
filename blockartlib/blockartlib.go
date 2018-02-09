@@ -322,11 +322,9 @@ func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
 
 func (s *Shape) computeInkUsage() (inkUnits uint64) {
 	if s.fill == "transparent" {
-		for _, lineSegment := range s.lineSegments {
-			inkUnits = inkUnits + lineSegment.length()
-		}
+		inkUnits = computePerimeter(s.lineSegments)
 	} else {
-
+		inkUnits = computePixelArea(s.min, s.max, s.vertices, s.lineSegments)
 	}
 
 	return
@@ -409,16 +407,21 @@ func (s *Shape) evaluateSvgString() (err error) {
 			vertices[i] = Point{relPos.x, relPos.y}
 		}
 
-		if relPos.x < s.min.x {
-			s.min.x = relPos.x
-		} else if relPos.x > s.max.x {
-			s.max.x = relPos.x
-		}
+		if i == 0 {
+			s.min = relPos
+			s.max = relPos
+		} else {
+			if relPos.x < s.min.x {
+				s.min.x = relPos.x
+			} else if relPos.x > s.max.x {
+				s.max.x = relPos.x
+			}
 
-		if relPos.y < s.min.y {
-			s.min.y = relPos.y
-		} else if relPos.y > s.max.y {
-			s.max.y = relPos.y
+			if relPos.y < s.min.y {
+				s.min.y = relPos.y
+			} else if relPos.y > s.max.y {
+				s.max.y = relPos.y
+			}
 		}
 	}
 

@@ -73,18 +73,35 @@ func TestGetVertices(t *testing.T) {
 
 // Test line segments generated from vertices
 func TestGetLineSegments(t *testing.T) {
-	shape := Shape{shapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
-	shape.evaluateSvgString()
+	shape1 := Shape{shapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
+	shape2 := Shape{shapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}
+	shape1.evaluateSvgString()
+	shape2.evaluateSvgString()
 
-	lineSegments := getLineSegments(shape.vertices)
-	lineSegmentsExpected := []LineSegment{
+	lineSegments1 := getLineSegments(shape1.vertices)
+	lineSegments1Expected := []LineSegment{
 		LineSegment{a: -5, b: 5, c: 0},
 		LineSegment{a: 0, b: 3, c: 15},
 		LineSegment{a: 5, b: -8, c: -30}}
 
-	for i := range lineSegments {
-		lineSegment := lineSegments[i]
-		lineSegmentExpected := lineSegmentsExpected[i]
+	lineSegments2 := getLineSegments(shape2.vertices)
+	lineSegments2Expected := []LineSegment{
+		LineSegment{
+			start: Point{5, 5},
+			end:   Point{10, 5}},
+		LineSegment{
+			start: Point{10, 5},
+			end:   Point{10, 10}},
+		LineSegment{
+			start: Point{10, 10},
+			end:   Point{5, 10}},
+		LineSegment{
+			start: Point{5, 10},
+			end:   Point{5, 5}}}
+
+	for i := range lineSegments1 {
+		lineSegment := lineSegments1[i]
+		lineSegmentExpected := lineSegments1Expected[i]
 
 		if lineSegment.a != lineSegmentExpected.a {
 			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.a))+", got ", strconv.Itoa(int(lineSegment.a)))
@@ -96,6 +113,19 @@ func TestGetLineSegments(t *testing.T) {
 
 		if lineSegment.c != lineSegmentExpected.c {
 			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.c))+", got ", strconv.Itoa(int(lineSegment.c)))
+		}
+	}
+
+	for i := range lineSegments2 {
+		lineSegment := lineSegments2[i]
+		lineSegmentExpected := lineSegments2Expected[i]
+
+		if lineSegment.start != lineSegmentExpected.start {
+			t.Error("Start point mismatch on line segment.")
+		}
+
+		if lineSegment.end != lineSegmentExpected.end {
+			t.Error("End point mismatch on line segment.")
 		}
 	}
 }
@@ -175,16 +205,41 @@ func TestShapeValid(t *testing.T) {
 
 // Test ink usage
 func TestInkUsage(t *testing.T) {
-	shape1 := Shape{fill: "transparent", shapeSvgString: "M 10 10 L 5 5 "}
-	shape2 := Shape{fill: "transparent", shapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
+	shape1 := Shape{fill: "transparent", shapeSvgString: "M 10 10 L 5 5 "}                               // Line
+	shape2 := Shape{fill: "transparent", shapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}                  // Twisted Square
+	shape3 := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}                     // Square
+	shape4 := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 h 4 l -2 5 z"}                       // Triangle
+	shape5 := Shape{fill: "transparent", shapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}     // Dracula teeth
+	shape6 := Shape{fill: "non-transparent", shapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth
 	shape1.evaluateSvgString()
 	shape2.evaluateSvgString()
+	shape3.evaluateSvgString()
+	shape4.evaluateSvgString()
+	shape5.evaluateSvgString()
+	shape6.evaluateSvgString()
 
-	if ink := shape1.computeInkUsage(); ink != 16 {
-		t.Error("Expected 16 ink units, got", strconv.FormatUint(ink, 10))
+	if ink := shape1.computeInkUsage(); ink != 8 {
+		t.Error("Expected 8 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
 	if ink := shape2.computeInkUsage(); ink != 26 {
-		t.Error("Expected 14 ink units, got", strconv.FormatUint(ink, 10))
+		t.Error("Expected 26 ink units, got", strconv.FormatUint(ink, 10))
+	}
+
+	// Note: although its 5X5 at first glance, its actual 5X6 in pixels
+	if ink := shape3.computeInkUsage(); ink != 30 {
+		t.Error("Expected 30 ink units, got", strconv.FormatUint(ink, 10))
+	}
+
+	if ink := shape4.computeInkUsage(); ink != 12 {
+		t.Error("Expected 12 ink units, got", strconv.FormatUint(ink, 10))
+	}
+
+	if ink := shape5.computeInkUsage(); ink != 70 {
+		t.Error("Expected 70 ink units, got", strconv.FormatUint(ink, 10))
+	}
+
+	if ink := shape6.computeInkUsage(); ink != 156 {
+		t.Error("Expected 156 ink units, got", strconv.FormatUint(ink, 10))
 	}
 }

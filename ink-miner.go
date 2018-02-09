@@ -118,6 +118,7 @@ type Miner struct {
 	serverConn                *rpc.Client
 	miners                    map[string]*rpc.Client
 	blockchain                map[string]*Block
+    blockChildren             map[string][]string
 	longestChainLastBlockHash string
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
@@ -194,6 +195,7 @@ func (m *Miner) init() {
 	args := os.Args[1:]
 	m.serverAddr = args[0]
 	m.blockchain = make(map[string]*Block)
+    m.blockChildren = make(map[string][]string)
 	m.shapes = make(map[string]*Shape)
 	m.nonces = make(map[string]bool)
 	m.tokens = make(map[string]bool)
@@ -295,7 +297,9 @@ func (m *Miner) getLongestChain() {
 		currHash := longestBlockHash
 		for i := 0; i < len(longestBlockChain); i++ {
 			// Should be from Latest block to Earliest/Genesis
-			m.blockchain[currHash] = &longestBlockChain[i]
+            block := &longestBlockChain[i]
+			m.blockchain[currHash] = block
+            m.addBlockChild(block, currHash)
 			currHash = longestBlockChain[i].PrevHash
 		}
 		m.longestChainLastBlockHash = longestBlockHash
@@ -333,6 +337,7 @@ func (m *Miner) mineNoOpBlock() {
 			if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) {
 				logger.Println("Found a new Block!: ", block, blockHash)
 				m.blockchain[blockHash] = block
+                m.addBlockChild(block, blockHash)
 				logger.Println("Current BlockChainMap: ", m.blockchain)
 				m.longestChainLastBlockHash = blockHash
 				m.update(block)
@@ -441,6 +446,17 @@ func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) {
 	}
 }
 
+// Adds a block's hash to its parent's list of child hashes.
+//
+func (m *Miner) addBlockChild(block *Block, hash string) {
+    if _, exists := m.blockChildren[block.PrevHash]; !exists {
+        m.blockChildren[block.PrevHash] = []string{hash}
+    } else {
+        children := m.blockChildren[block.PrevHash]
+        m.blockChildren[block.PrevHash] = append(children, hash)
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <RPC METHODS>
 
@@ -518,6 +534,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	// If new block, disseminate
 	if _, exists := m.blockchain[blockHash]; !exists {
 		m.blockchain[blockHash] = block
+        m.addBlockChild(block, blockHash)
 		// compute longest chain
 		newChain := lengthLongestChain(blockHash, m.blockchain)
 		oldChain := lengthLongestChain(m.longestChainLastBlockHash, m.blockchain)
@@ -616,8 +633,32 @@ func (m *Miner) GetShapes(request *ArtnodeRequest, response *MinerResponse) erro
 	for i, record := range block.Records {
 		shapeHashes[i] = record.Op.ShapeHash
 	}
+    response.Payload[0] = shapeHashes
 
 	return nil
+}
+
+// Get a list of block hashes which are children of a given block
+func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) error {
+    token := request.Token
+    _, validToken := m.tokens[token]
+    if !validToken {
+        response.Error = INVALID_TOKEN
+        return nil
+    }
+
+    hash := request.Payload[0].(string)
+    children, exists := m.blockChildren[hash]
+    if !exists {
+        response.Error = INVALID_BLOCK_HASH
+        return nil
+    }
+
+    response.Error = NO_ERROR
+    response.Payload = make([]interface{}, 1)
+    response.Payload[0] = children
+
+    return nil
 }
 
 // </RPC METHODS>

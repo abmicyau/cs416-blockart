@@ -371,7 +371,7 @@ func (m *Miner) mineNoOpBlock() {
 				panic(err)
 			}
 			blockHash := md5Hash(encodedBlock)
-			if strings.HasSuffix(blockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) {
+			if m.hashMatchesPOWDifficulty(blockHash) {
 				logger.Println("Found a new Block!: ", block, blockHash)
 				m.blockchain[blockHash] = block
 				logger.Println("Current BlockChainMap: ", m.blockchain)
@@ -554,7 +554,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 
 	// TODO:
 	//		Validate Block
-	isHashValid := m.validateHash(block, blockHash)
+	isHashValid := m.validateBlock(block, blockHash)
 	//		If Valid, add to block chain
 	//		Else return invalid
 
@@ -685,14 +685,16 @@ func (m *Miner) lengthLongestChain(blockhash string) int {
 	return length
 }
 
-func (m *Miner) validateHash(block Block, blockHash string) bool {
+// Asserts the following about a given block and blockHash:
+// - blockhash matches POW difficulty and nonce is correct
+// - the given block points to a valid hash in the blockchain
+// TODO: operation validations
+func (m *Miner) validateBlock(block Block, blockHash string) bool {
 	encodedBlock, err := json.Marshal(block)
-	if err != nil {
-		panic(err)
-	}
+	checkError(err)
 	newBlockHash := md5Hash(encodedBlock)
-	if strings.HasSuffix(newBlockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock))) && blockHash == newBlockHash {
-		// logger.Println("Received Block hashes to correct hash")
+	if m.hashMatchesPOWDifficulty(newBlockHash) && blockHash == newBlockHash && m.blockchain[block.PrevHash] != nil {
+		logger.Println("Received Block hashes to correct hash")
 		return true
 	}
 	return false
@@ -739,6 +741,11 @@ func getRand256() string {
 		str[i] = alphabet[index.Int64()]
 	}
 	return string(str)
+}
+
+// Asserts that block hash matches the intended POW difficulty
+func (m *Miner) hashMatchesPOWDifficulty(blockhash string) bool {
+	return strings.HasSuffix(blockhash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock)))
 }
 
 // </HELPER METHODS>

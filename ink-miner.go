@@ -141,7 +141,7 @@ type Block struct {
 
 type Shape struct {
 	ShapeType      ShapeType
-	ShapeSvgString string
+	Path           string
 	Fill           string
 	Stroke         string
 	Owner          ecdsa.PublicKey
@@ -259,6 +259,9 @@ func (m *Miner) listenRPC() {
 // Ink miner registers their address and public key to the server and starts sending heartbeats
 func (m *Miner) registerWithServer() {
 	serverConn, err := rpc.Dial("tcp", m.serverAddr)
+    if checkError(err) != nil {
+        log.Fatal("Couldn't connect to Server")
+    }
 	settings := new(MinerNetSettings)
 	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, settings)
 	if checkError(err) != nil {
@@ -462,6 +465,68 @@ func (m *Miner) revert(block *Block) {
 	}
 }
 
+// Manages miner state updates during a branch switch:
+//
+// 1. A series of update() and revert() calls are performed up to the most
+//    recent ancestor of the current blockchain head and the new (longer)
+//    blockchain head so that the miner state reflects that of the new head.
+//    Note that this method is also called for the case of a simple fast-
+//    forward, where the most recent ancestor will be one of the blocks
+//    themself.
+//
+// 2. The miner's current blockchain head is updated.
+//
+// Assumption: oldBlockHash and newBlockHash must both be valid block hashes
+// for blocks which exist in the miner's current block map, and are both
+// connected to the genesis block. If this is not the case, then some bad
+// shit is gonna happen.
+//
+// TODO: Now we REALLY need a lock on the miner. These miner state updates
+// are race conditions waiting to happen...
+//
+func (m *Miner) switchBranches(oldBlockHash, newBlockHash string) {
+    // newBlock and oldBlock are "current" block pointers in the new and
+    // old blockchain, respectively, as we traverse backwards
+    newBlock := m.blockchain[newBlockHash]
+    oldBlock := m.blockchain[oldBlockHash]
+
+    for newBlock.BlockNo > oldBlock.BlockNo {
+        m.update(newBlock)
+
+        if newBlock.PrevHash == oldBlockHash {
+            // In the case of a fast-forward, the previous hash of the new
+            // block will eventually be equal to the hash of the old blockchain
+            // head. When it reaches that point, we can return, as we are done
+            // applying all necessary state updates in the new chain.
+            m.longestChainLastBlockHash = newBlockHash
+            m.newLongestChain <- true
+            return
+        }
+
+        newBlock = m.blockchain[newBlock.PrevHash]
+    }
+
+    // If we reach this point, that means the block number of the new block is
+    // equal to the block number of the old block, but their block hashes are
+    // not equal. Therefore, they are on separate branches (of what are now equal
+    // length), so we can now make both block pointers move backwards, adjusting
+    // the miner state along the way, until their previous hashes are equal (the
+    // fact that the loop guard comes at the end accounts for the last traversal
+    // step, as well as the edge case where both branches are only of length 1).
+    for {
+        m.update(newBlock)
+        m.revert(oldBlock)
+        newBlock = m.blockchain[newBlock.PrevHash]
+        oldBlock = m.blockchain[oldBlock.PrevHash]
+        if newBlock.PrevHash == oldBlock.PrevHash {
+            continue
+        }
+    }
+
+    m.longestChainLastBlockHash = newBlockHash
+    m.newLongestChain <- true
+}
+
 // Sends block to all connected miners
 // Makes sure that enough miners are connected; if under minimum, it calls for more
 func (m *Miner) disseminateToConnectedMiners(block Block, blockHash string) {
@@ -542,7 +607,7 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
 
 	response.Error = NO_ERROR
 	response.Payload = make([]interface{}, 1)
-	response.Payload[0] = shape.ShapeSvgString
+	response.Payload[0] = `<path d="` + shape.Path + `" stroke="` + shape.Stroke + `" fill="` + shape.Fill + `"/>`
 	return nil
 }
 
@@ -565,9 +630,9 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 		newChain := m.lengthLongestChain(blockHash)
 		oldChain := m.lengthLongestChain(m.longestChainLastBlockHash)
 		if newChain > oldChain {
-			m.longestChainLastBlockHash = blockHash
-			m.newLongestChain <- true
-		} // TODO: else, if equal, pick the largest hash = random
+            m.switchBranches(m.longestChainLastBlockHash, blockHash)
+		}
+        // TODO: else, if equal, pick the largest hash = random
 		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners

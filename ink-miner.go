@@ -347,6 +347,9 @@ func (m *Miner) getLongestChain() {
 		m.longestChainLastBlockHash = longestBlockHash
 		logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
 	}
+
+    // Create a dummy block as the genesis block
+    m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKey, 0}
 }
 
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
@@ -358,7 +361,7 @@ func (m *Miner) mineNoOpBlock() {
 
 	if m.longestChainLastBlockHash == "" {
 		prevHash = m.settings.GenesisBlockHash
-		blockNo = 0
+		blockNo = 1
 	} else {
 		prevHash = m.longestChainLastBlockHash
 		blockNo = m.blockchain[prevHash].BlockNo + 1
@@ -482,8 +485,8 @@ func (m *Miner) switchBranches(oldBlockHash, newBlockHash string) {
 
     for newBlock.BlockNo > oldBlock.BlockNo {
         m.applyBlock(newBlock)
-
-        if newBlock.PrevHash == oldBlockHash {
+        prevHash := newBlock.PrevHash
+        if prevHash == oldBlockHash {
             // In the case of a fast-forward, the previous hash of the new
             // block will eventually be equal to the hash of the old blockchain
             // head. When it reaches that point, we can return, as we are done
@@ -493,7 +496,7 @@ func (m *Miner) switchBranches(oldBlockHash, newBlockHash string) {
             return
         }
 
-        newBlock = m.blockchain[newBlock.PrevHash]
+        newBlock = m.blockchain[prevHash]
     }
 
     // If we reach this point, that means the block number of the new block is
@@ -617,10 +620,14 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	if _, exists := m.blockchain[blockHash]; !exists && isHashValid {
 		m.blockchain[blockHash] = &block
 		// compute longest chain
-		newChain := m.lengthLongestChain(blockHash)
-		oldChain := m.lengthLongestChain(m.longestChainLastBlockHash)
-		if newChain > oldChain {
-            m.switchBranches(m.longestChainLastBlockHash, blockHash)
+		newChainLength := lengthLongestChain(blockHash, m.blockchain)
+		oldChainLength := lengthLongestChain(m.longestChainLastBlockHash, m.blockchain)
+        if newChainLength > oldChainLength {
+            if oldChainLength == 0 {
+                m.switchBranches(m.settings.GenesisBlockHash, blockHash)
+            } else {
+                m.switchBranches(m.longestChainLastBlockHash, blockHash)
+            }
 		}
         // TODO: else, if equal, pick the largest hash = random
 		// TODO: Else, reply back with our longest chain to sync up with sender
@@ -644,7 +651,7 @@ func (m *Miner) GetBlockChain(request *MinerRequest, response *MinerResponse) er
 		return nil
 	}
 
-	longestChainLength := m.blockchain[m.longestChainLastBlockHash].BlockNo + 1
+	longestChainLength := m.blockchain[m.longestChainLastBlockHash].BlockNo
 	longestChain := make([]Block, longestChainLength)
 
 	var currhash = m.longestChainLastBlockHash

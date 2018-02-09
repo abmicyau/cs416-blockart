@@ -410,6 +410,9 @@ func (m *Miner) applyBlock(block *Block) {
 	// update shapes and ink per operation
 	for _, record := range block.Records {
 		op := record.Op
+        if _, exists := m.inkAccounts[record.PubKey]; !exists {
+            m.inkAccounts[record.PubKey] = 0
+        }
 		if op.Type == ADD {
 			m.shapes[op.ShapeHash] = &op.Shape
             m.inkAccounts[record.PubKeyString] -= op.InkCost
@@ -420,6 +423,9 @@ func (m *Miner) applyBlock(block *Block) {
 	}
 
     // add ink for the newly mined block
+    if _, exists := m.inkAccounts[block.PubKey]; !exists {
+        m.inkAccounts[block.PubKey] = 0
+    }
     if len(block.Records) == 0 {
         m.inkAccounts[block.PubKeyString] += m.settings.InkPerNoOpBlock
     } else {

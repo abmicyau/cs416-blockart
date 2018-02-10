@@ -616,7 +616,7 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
 
 	response.Error = NO_ERROR
 	response.Payload = make([]interface{}, 1)
-	response.Payload[0] = `<path d="` + shape.Path + `" stroke="` + shape.Stroke + `" fill="` + shape.Fill + `"/>`
+	response.Payload[0] = `<path d="` + shape.ShapeSvgString + `" stroke="` + shape.Stroke + `" fill="` + shape.Fill + `"/>`
 	return nil
 }
 
@@ -635,7 +635,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	// If new block, disseminate
 	if _, exists := m.blockchain[blockHash]; !exists && isHashValid {
 		m.blockchain[blockHash] = &block
-        m.addBlockChild(block, blockHash)
+        m.addBlockChild(&block, blockHash)
 		// compute longest chain
 		newChainLength := m.lengthLongestChain(blockHash)
 		oldChainLength := m.lengthLongestChain(m.longestChainLastBlockHash)

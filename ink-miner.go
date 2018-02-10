@@ -349,7 +349,7 @@ func (m *Miner) getLongestChain() {
 	}
 
     // Create a dummy block as the genesis block
-    m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKey, 0}
+    m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKeyString, 0}
 }
 
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
@@ -413,8 +413,8 @@ func (m *Miner) applyBlock(block *Block) {
 	// update shapes and ink per operation
 	for _, record := range block.Records {
 		op := record.Op
-        if _, exists := m.inkAccounts[record.PubKey]; !exists {
-            m.inkAccounts[record.PubKey] = 0
+        if _, exists := m.inkAccounts[record.PubKeyString]; !exists {
+            m.inkAccounts[record.PubKeyString] = 0
         }
 		if op.Type == ADD {
 			m.shapes[op.ShapeHash] = &op.Shape
@@ -426,8 +426,8 @@ func (m *Miner) applyBlock(block *Block) {
 	}
 
     // add ink for the newly mined block
-    if _, exists := m.inkAccounts[block.PubKey]; !exists {
-        m.inkAccounts[block.PubKey] = 0
+    if _, exists := m.inkAccounts[block.PubKeyString]; !exists {
+        m.inkAccounts[block.PubKeyString] = 0
     }
     if len(block.Records) == 0 {
         m.inkAccounts[block.PubKeyString] += m.settings.InkPerNoOpBlock
@@ -620,8 +620,8 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	if _, exists := m.blockchain[blockHash]; !exists && isHashValid {
 		m.blockchain[blockHash] = &block
 		// compute longest chain
-		newChainLength := lengthLongestChain(blockHash, m.blockchain)
-		oldChainLength := lengthLongestChain(m.longestChainLastBlockHash, m.blockchain)
+		newChainLength := m.lengthLongestChain(blockHash)
+		oldChainLength := m.lengthLongestChain(m.longestChainLastBlockHash)
         if newChainLength > oldChainLength {
             if oldChainLength == 0 {
                 m.switchBranches(m.settings.GenesisBlockHash, blockHash)

@@ -320,16 +320,19 @@ func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <PRIVATE METHODS>
 
-func (s *Shape) computeInkUsage() (inkUnits uint64) {
+// Computes the ink required for the given shape according
+// to the fill specification.
+func (s *Shape) computeInkRequired() (inkUnits uint64) {
 	if s.fill == "transparent" {
 		inkUnits = computePerimeter(s.lineSegments)
 	} else {
-		inkUnits = computePixelArea(s.min, s.max, s.vertices, s.lineSegments)
+		inkUnits = computePixelArea(s.min, s.max, s.lineSegments)
 	}
 
 	return
 }
 
+// Determines if, within a canvas bound, a proposed shape is valid.
 func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 	valid = true
 
@@ -363,6 +366,12 @@ func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 	return
 }
 
+/* Evaluates a shapes provided SVG string to determine the following:
+- Its min and max bounding box
+- Its parsed commands
+- Its vertices
+- Its line segments
+*/
 func (s *Shape) evaluateSvgString() (err error) {
 	s.min, s.max = Point{}, Point{}
 	if s.commands, err = getCommands(s.shapeSvgString); err != nil {
@@ -431,40 +440,33 @@ func (s *Shape) evaluateSvgString() (err error) {
 	return
 }
 
-func (s *Shape) hasOverlap(_s Shape) (overlap bool) {
-	s.evaluateSvgString()
-	_s.evaluateSvgString()
-
-	lineSegments := getLineSegments(s.vertices)
-	_lineSegments := getLineSegments(_s.vertices)
-	if s.fill == "transparent" && _s.fill == "transparent" {
-		for _, _lineSegment := range _lineSegments {
-			for _, lineSegment := range lineSegments {
-				if overlap = lineSegment.intersects(_lineSegment); overlap {
-					break
-				}
-			}
-
-			if overlap {
-				break
-			}
-		}
+// Determines if a proposed shape overlape this shape.
+func (s *Shape) hasOverlap(_s Shape) bool {
+	// Easy preliminary: does the bounding box of _s encompass s
+	if _s.fill != "transparent" && (_s.min.x <= s.min.x && _s.min.y <= s.min.y) && (_s.max.x >= s.max.x && _s.max.y >= s.max.y) {
+		return true
 	}
 
-	return
+	if intersectExists(s.lineSegments, _s.lineSegments) {
+		return true
+	} else if s.fill != "transparent" && containsVertex(s.min, s.max, s.lineSegments, _s.vertices) {
+		return true
+	} else {
+		return false
+	}
 }
 
+// Determines if the proposed shape overlaps a shape on the canvas
+// not belonging to the proposed shapes' owner.
 func (c CanvasInstance) hasOverlappingShape(shape Shape) (overlap bool) {
-	shapes := c.shapes
-	for i := range shapes {
-		_shape := shapes[i]
-
+	for _, _shape := range c.shapes { // For every shape on the canvas
+		// Skip if owner is the same
 		if _shape.owner == shape.owner {
 			continue
 		}
 
-		overlap = _shape.hasOverlap(shape)
-		if overlap {
+		// Check for an overlap
+		if overlap = _shape.hasOverlap(shape); overlap {
 			break
 		}
 	}

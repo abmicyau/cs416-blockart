@@ -204,7 +204,7 @@ func TestShapeValid(t *testing.T) {
 }
 
 // Test ink usage
-func TestInkUsage(t *testing.T) {
+func TestInkRequired(t *testing.T) {
 	shape1 := Shape{fill: "transparent", shapeSvgString: "M 10 10 L 5 5 "}                               // Line
 	shape2 := Shape{fill: "transparent", shapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}                  // Twisted Square
 	shape3 := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}                     // Square
@@ -218,28 +218,139 @@ func TestInkUsage(t *testing.T) {
 	shape5.evaluateSvgString()
 	shape6.evaluateSvgString()
 
-	if ink := shape1.computeInkUsage(); ink != 8 {
+	if ink := shape1.computeInkRequired(); ink != 8 {
 		t.Error("Expected 8 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
-	if ink := shape2.computeInkUsage(); ink != 26 {
+	if ink := shape2.computeInkRequired(); ink != 26 {
 		t.Error("Expected 26 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
 	// Note: although its 5X5 at first glance, its actual 5X6 in pixels
-	if ink := shape3.computeInkUsage(); ink != 30 {
+	if ink := shape3.computeInkRequired(); ink != 30 {
 		t.Error("Expected 30 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
-	if ink := shape4.computeInkUsage(); ink != 12 {
+	if ink := shape4.computeInkRequired(); ink != 12 {
 		t.Error("Expected 12 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
-	if ink := shape5.computeInkUsage(); ink != 70 {
+	if ink := shape5.computeInkRequired(); ink != 70 {
 		t.Error("Expected 70 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
-	if ink := shape6.computeInkUsage(); ink != 156 {
+	if ink := shape6.computeInkRequired(); ink != 156 {
 		t.Error("Expected 156 ink units, got", strconv.FormatUint(ink, 10))
 	}
+}
+
+// Test overlap
+func TestOverlap(t *testing.T) {
+	triangle := Shape{fill: "transparent", shapeSvgString: "M 5 5 h 4 l -2 5 z"}                                // Triangle -- Transparent
+	triangleFilled := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 h 4 l -2 5 z"}                      // Triangle -- Filled
+	dracula := Shape{fill: "transparent", shapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}           // Dracula teeth -- Transparent
+	draculaFilled := Shape{fill: "non-transparent", shapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth -- Filled
+	triangle.evaluateSvgString()
+	triangleFilled.evaluateSvgString()
+	dracula.evaluateSvgString()
+	draculaFilled.evaluateSvgString()
+
+	// Test polygon surrounding shape
+	square := Shape{fill: "transparent", shapeSvgString: "M 1 1 H 40 V -40 H -40 Z"}
+	square.evaluateSvgString()
+	if overlap := triangle.hasOverlap(square); overlap != false {
+		t.Error("Expected big non-filled square not to overlap smaller triangle.")
+	}
+
+	squareFilled := Shape{fill: "non-transparent", shapeSvgString: "M 1 1 h 40 v 40 h -40 Z"}
+	squareFilled.evaluateSvgString()
+	if overlap := triangle.hasOverlap(squareFilled); overlap != true {
+		t.Error("Expected big filled square to overlap smaller triangle.")
+	}
+
+	// Test basic intersection
+	trans := Shape{fill: "transparent", shapeSvgString: "M 5 5 v 3 h 10 v -5"}
+	filled := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 v 3 h 10 v -5"}
+	trans.evaluateSvgString()
+	filled.evaluateSvgString()
+
+	overlap := triangle.hasOverlap(trans)
+	overlap = triangleFilled.hasOverlap(trans)
+	overlap = triangle.hasOverlap(filled)
+	overlap = triangleFilled.hasOverlap(filled)
+
+	if overlap != true {
+		t.Error("Expected overlap, got no overlap.")
+	}
+
+	// Test cases with shapes within weird polygons
+	longRectangle := Shape{fill: "transparent", shapeSvgString: "M 15 12 h 1 v 1 h -1 Z"}
+	longRectangleFilled := Shape{fill: "non-transparent", shapeSvgString: "M 15 12 h 1 v 1 h -1 Z"}
+	squareCenter := Shape{fill: "transparent", shapeSvgString: "M 18 6 h 1 v 1 h -1 Z"}
+	squareCenterFilled := Shape{fill: "non-transparent", shapeSvgString: "M 18 6 h 1 v 1 h -1 Z"}
+	squareLeftTooth := Shape{fill: "transparent", shapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
+	squareLeftToothFilled := Shape{fill: "non-transparent", shapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
+	squareBetweenTeeth := Shape{fill: "transparent", shapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
+	squareBetweenTeethFilled := Shape{fill: "non-transparent", shapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
+	longRectangle.evaluateSvgString()
+	longRectangleFilled.evaluateSvgString()
+	squareCenter.evaluateSvgString()
+	squareCenterFilled.evaluateSvgString()
+	squareLeftTooth.evaluateSvgString()
+	squareLeftToothFilled.evaluateSvgString()
+	squareBetweenTeeth.evaluateSvgString()
+	squareBetweenTeethFilled.evaluateSvgString()
+
+	if overlap := dracula.hasOverlap(longRectangle); overlap != true {
+		t.Error("Expected long rectangle across dracula teeth to overlap, got no overlap.")
+	}
+	if overlap := draculaFilled.hasOverlap(longRectangle); overlap != true {
+		t.Error("Expected long rectangle across dracula teeth to overlap, got no overlap.")
+	}
+	if overlap := dracula.hasOverlap(longRectangleFilled); overlap != true {
+		t.Error("Expected long rectangle across dracula teeth to overlap, got no overlap.")
+	}
+	if overlap := draculaFilled.hasOverlap(longRectangleFilled); overlap != true {
+		t.Error("Expected long rectangle across dracula teeth to overlap, got no overlap.")
+	}
+
+	if overlap := dracula.hasOverlap(squareCenter); overlap != false {
+		t.Error("Expected small square in center of dracula teeth to not overlap, got overlap.")
+	}
+	if overlap := draculaFilled.hasOverlap(squareCenter); overlap != true {
+		t.Error("Expected small square in center of dracula teeth to overlap, got no overlap.")
+	}
+	if overlap := dracula.hasOverlap(squareCenterFilled); overlap != false {
+		t.Error("Expected small square in center of dracula teeth to not overlap, got overlap.")
+	}
+	if overlap := draculaFilled.hasOverlap(squareCenterFilled); overlap != true {
+		t.Error("Expected small square in center of dracula teeth to overlap, got no overlap.")
+	}
+
+	if overlap := dracula.hasOverlap(squareLeftTooth); overlap != false {
+		t.Error("Expected left tooth square to not overlap, got overlap.")
+	}
+	if overlap := draculaFilled.hasOverlap(squareLeftTooth); overlap != true {
+		t.Error("Expected left tooth square to overlap, got no overlap.")
+	}
+	if overlap := dracula.hasOverlap(squareLeftToothFilled); overlap != false {
+		t.Error("Expected left tooth square to not overlap, got overlap.")
+	}
+	if overlap := draculaFilled.hasOverlap(squareLeftToothFilled); overlap != true {
+		t.Error("Expected left tooth square to overlap, got no overlap.")
+	}
+
+	if overlap := dracula.hasOverlap(squareBetweenTeeth); overlap != false {
+		t.Error("Expected square between teeth (outside draculas teeth polygon) to not overlap, got overlap.")
+	}
+	if overlap := draculaFilled.hasOverlap(squareBetweenTeeth); overlap != false {
+		t.Error("Expected square between teeth (outside draculas teeth polygon) to not overlap, got overlap.")
+	}
+	if overlap := dracula.hasOverlap(squareBetweenTeethFilled); overlap != false {
+		t.Error("Expected square between teeth (outside draculas teeth polygon) to not overlap, got overlap.")
+	}
+	if overlap := draculaFilled.hasOverlap(squareBetweenTeethFilled); overlap != false {
+		t.Error("Expected square between teeth (outside draculas teeth polygon) to not overlap, got overlap.")
+	}
+
 }

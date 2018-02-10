@@ -249,9 +249,23 @@ func getCommands(svg string) (commands []Command, err error) {
 	return
 }
 
+// Determines if the given vertex exists in a set of vertices
 func vertexExists(v Point, vertices []Point) bool {
 	for _, vertex := range vertices {
 		if v.x == vertex.x && v.y == vertex.y {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Determines if a line segment exists in a set of line segments
+func segmentExists(lineSegment LineSegment, lineSegments []LineSegment) bool {
+	for _, _lineSegment := range lineSegments {
+		if lineSegment.start == _lineSegment.start && lineSegment.end == _lineSegment.end {
+			return true
+		} else if lineSegment.start == _lineSegment.end && lineSegment.end == _lineSegment.start {
 			return true
 		}
 	}
@@ -271,11 +285,46 @@ func getLineSegment(v1 Point, v2 Point) (lineSegment LineSegment) {
 	return
 }
 
-func segmentExists(lineSegment LineSegment, lineSegments []LineSegment) bool {
-	for _, _lineSegment := range lineSegments {
-		if lineSegment.start == _lineSegment.start && lineSegment.end == _lineSegment.end {
-			return true
-		} else if lineSegment.start == _lineSegment.end && lineSegment.end == _lineSegment.start {
+// Determines if an intersect exists between two sets of line segments
+func intersectExists(lineSegments []LineSegment, _lineSegments []LineSegment) bool {
+	for _, _lineSegment := range _lineSegments {
+		for _, lineSegment := range lineSegments {
+			if intersect := lineSegment.intersects(_lineSegment); intersect {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+/* Given a set of polygon intersects and vertex intersects, where the polygon
+intersects belong to some polygon and vertex intersects being vertices of
+some test shape, if the following is true:
+
+An ordered configuration of one vertex intersect and all polygon intersections
+exists where this is an odd number of polygon intersects on either side of then
+one vertex intersect.
+
+For example (p = polygon intersect and v = vertex intersect):
+	ppp v ppppp
+
+If this is true, the test shape is WITHIN the polygon.
+*/
+func hasOddConfiguration(polyIntersects []Point, vertexIntersects []Point) bool {
+	for _, v := range vertexIntersects {
+		var leftIntersects uint32
+		var rightIntersects uint32
+
+		for _, p := range polyIntersects {
+			if p.x < v.x {
+				leftIntersects++
+			} else {
+				rightIntersects++
+			}
+		}
+
+		if (leftIntersects%2 != 0) && (rightIntersects%2 != 0) {
 			return true
 		}
 	}
@@ -308,6 +357,42 @@ func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
 	}
 
 	return
+}
+
+// Determines if any of the vertices are contained with a polygon, using a scanline.
+func containsVertex(min Point, max Point, lineSegments []LineSegment, vertices []Point) bool {
+	for y := min.y; y <= max.y; y++ {
+		var polyIntersects []Point
+		var vertexIntersects []Point
+
+		scanLine := getLineSegment(Point{min.x, y}, Point{max.x, y})
+
+		// Get all polygon intersects on this scanline
+		for _, l := range lineSegments {
+			if scanLine.isColinear(l) {
+				polyIntersects = append(polyIntersects, l.start, l.end)
+			} else {
+				hasIntersect := l.intersects(scanLine)
+				intersect, err := l.getIntersect(scanLine)
+				if hasIntersect && err == nil && !vertexExists(intersect, polyIntersects) {
+					polyIntersects = append(polyIntersects, intersect)
+				}
+			}
+		}
+
+		// Get all vertex intersects on this scanline
+		for _, v := range vertices {
+			if scanLine.hasPoint(v) {
+				vertexIntersects = append(vertexIntersects, v)
+			}
+		}
+
+		if len(vertexIntersects) > 0 && hasOddConfiguration(polyIntersects, vertexIntersects) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Computes the total length of all segments
@@ -347,7 +432,7 @@ func computeGeoArea(vertices []Point) uint64 {
 // descending down the y-axis
 // NOTE: This computes the actual number of pixels required to draw shape
 // Doesn't exlude the actual line segments
-func computePixelArea(min Point, max Point, vertices []Point, lineSegments []LineSegment) (area uint64) {
+func computePixelArea(min Point, max Point, lineSegments []LineSegment) (area uint64) {
 	for y := min.y; y <= max.y; y++ {
 		var intersects []Point
 

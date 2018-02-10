@@ -10,7 +10,6 @@ package blockartlib
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"crypto/ecdsa"
 	"crypto/rand"
 	"net/rpc"
 	"os"
@@ -147,20 +146,6 @@ type CanvasInstance struct {
 	MinerAddr string
 	Miner     *rpc.Client
 	Token     string
-}
-
-type Shape struct {
-	shapeType      ShapeType
-	shapeSvgString string
-	fill           string
-	stroke         string
-	owner          ecdsa.PublicKey
-
-	commands     []Command
-	vertices     []Point
-	lineSegments []LineSegment
-	min          Point
-	max          Point
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -307,23 +292,33 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 // - ShapeOverlapError
 // - OutOfBoundsError
 func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSvgString string, fill string, stroke string) (shapeHash string, blockHash string, inkRemaining uint32, err error) {
-	shape := Shape{
-		fill:           fill,
-		stroke:         stroke,
-		shapeType:      shapeType,
-		shapeSvgString: shapeSvgString,
-		owner:          c.privKey.PublicKey}
-	shapeHash = shape.hash()
+	request := new(ArtnodeRequest)
+	request.Token = c.Token
+	request.Payload = make([]interface{}, 5)
+	request.Payload[0] = validateNum
+	request.Payload[1] = shapeType
+	request.Payload[2] = shapeSvgString
+	request.Payload[3] = fill
+	request.Payload[4] = stroke
+	response := new(MinerResponse)
 
-	blockHash = ""
-	inkRemaining = 0
+	err = c.Miner.Call("Miner.AddShape", request, response)
 
-	shape.evaluateSvgString()
-	if valid, err := shape.isValid(c.settings.CanvasXMax, c.settings.CanvasYMax); !valid {
-		return shapeHash, blockHash, inkRemaining, err
-	} else if c.hasOverlappingShape(shape) {
-		return shapeHash, blockHash, inkRemaining, ShapeOverlapError(shapeHash)
+	if checkError(err) != nil || response.Error == INVALID_TOKEN {
+		return shapeHash, blockHash, inkRemaining, DisconnectedError(c.MinerAddr)
+	} else if false {
+		// TODO: Handle all types of errors
+		// - InsufficientInkError
+		// - InvalidShapeSvgStringError
+		// - ShapeSvgStringTooLongError
+		// - ShapeOverlapError
+		// - OutOfBoundsError
+		// See MinerResponseError for details
 	}
+
+	shapeHash = response.Payload[0].(string)
+	blockHash = response.Payload[1].(string)
+	inkRemaining = response.Payload[0].(uint32)
 
 	return shapeHash, blockHash, inkRemaining, nil
 }
@@ -475,163 +470,31 @@ func checkError(err error) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return err
-// Computes the ink required for the given shape according
-// to the fill specification.
-func (s *Shape) computeInkRequired() (inkUnits uint64) {
-	if s.fill == "transparent" {
-		inkUnits = computePerimeter(s.lineSegments)
-	} else {
-		inkUnits = computePixelArea(s.min, s.max, s.lineSegments)
 	}
-
-	return
+	return nil
 }
 
-// Determines if, within a canvas bound, a proposed shape is valid.
-func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
-	valid = true
+// // Determines if the proposed shape overlaps a shape on the canvas
+// // not belonging to the proposed shapes' owner.
+// func (c CanvasInstance) hasOverlappingShape(shape Shape) (overlap bool) {
+// 	for _, _shape := range c.shapes { // For every shape on the canvas
+// 		// Skip if owner is the same
+// 		if _shape.owner == shape.owner {
+// 			continue
+// 		}
 
-	for _, vertex := range s.vertices {
-		if valid = vertex.inBound(xMax, yMax); !valid {
-			err = new(OutOfBoundsError)
+// 		// Check for an overlap
+// 		if overlap = _shape.hasOverlap(shape); overlap {
+// 			break
+// 		}
+// 	}
 
-			return
-		}
-	}
+// 	return
+// }
 
-	if s.fill != "transparent" {
-		for i := range s.lineSegments {
-			curSeg := s.lineSegments[i]
-
-			for j := range s.lineSegments {
-				if i != j && curSeg.intersects(s.lineSegments[j]) == true {
-					valid = false
-					err = InvalidShapeSvgStringError(s.shapeSvgString)
-
-					return
-				}
-			}
-
-			if !valid {
-				break
-			}
-		}
-	}
-
-	return
-}
-
-/* Evaluates a shapes provided SVG string to determine the following:
-- Its min and max bounding box
-- Its parsed commands
-- Its vertices
-- Its line segments
-*/
-func (s *Shape) evaluateSvgString() (err error) {
-	s.min, s.max = Point{}, Point{}
-	if s.commands, err = getCommands(s.shapeSvgString); err != nil {
-		return
-	}
-
-	vertices := make([]Point, len(s.commands))
-
-	absPos, relPos := Point{0, 0}, Point{0, 0}
-	for i := range s.commands {
-		_command := s.commands[i]
-
-		switch _command.cmdType {
-		case "M":
-			absPos.x, absPos.y = _command.x, _command.y
-			relPos.x, relPos.y = _command.x, _command.y
-
-			vertices[i] = Point{relPos.x, relPos.y}
-		case "H":
-			relPos.x = _command.x
-
-			vertices[i] = Point{relPos.x, absPos.y}
-		case "V":
-			relPos.y = _command.y
-
-			vertices[i] = Point{absPos.x, relPos.y}
-		case "L":
-			relPos.x, relPos.y = _command.x, _command.y
-
-			vertices[i] = Point{relPos.x, relPos.y}
-		case "h":
-			relPos.x = relPos.x + _command.x
-
-			vertices[i] = Point{relPos.x, relPos.y}
-		case "v":
-			relPos.y = relPos.y + _command.y
-
-			vertices[i] = Point{relPos.x, relPos.y}
-		case "l":
-			relPos.x, relPos.y = relPos.x+_command.x, relPos.y+_command.y
-
-			vertices[i] = Point{relPos.x, relPos.y}
-		}
-
-		if i == 0 {
-			s.min = relPos
-			s.max = relPos
-		} else {
-			if relPos.x < s.min.x {
-				s.min.x = relPos.x
-			} else if relPos.x > s.max.x {
-				s.max.x = relPos.x
-			}
-
-			if relPos.y < s.min.y {
-				s.min.y = relPos.y
-			} else if relPos.y > s.max.y {
-				s.max.y = relPos.y
-			}
-		}
-	}
-
-	s.vertices = vertices
-	s.lineSegments = getLineSegments(vertices)
-
-	return
-}
-
-// Determines if a proposed shape overlape this shape.
-func (s *Shape) hasOverlap(_s Shape) bool {
-	// Easy preliminary: does the bounding box of _s encompass s
-	if _s.fill != "transparent" && (_s.min.x <= s.min.x && _s.min.y <= s.min.y) && (_s.max.x >= s.max.x && _s.max.y >= s.max.y) {
-		return true
-	}
-
-	if intersectExists(s.lineSegments, _s.lineSegments) {
-		return true
-	} else if s.fill != "transparent" && containsVertex(s.min, s.max, s.lineSegments, _s.vertices) {
-		return true
-	} else {
-		return false
-	}
-}
-
-// Determines if the proposed shape overlaps a shape on the canvas
-// not belonging to the proposed shapes' owner.
-func (c CanvasInstance) hasOverlappingShape(shape Shape) (overlap bool) {
-	for _, _shape := range c.shapes { // For every shape on the canvas
-		// Skip if owner is the same
-		if _shape.owner == shape.owner {
-			continue
-		}
-
-		// Check for an overlap
-		if overlap = _shape.hasOverlap(shape); overlap {
-			break
-		}
-	}
-
-	return
-}
-
-func (s Shape) hash() string {
-	return ""
-}
+// func (s Shape) hash() string {
+// 	return ""
+// }
 
 // </PRIVATE METHODS>
 ////////////////////////////////////////////////////////////////////////////////////////////

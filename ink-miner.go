@@ -8,6 +8,8 @@ go run ink-miner.go [server ip:port] [pubKey] [privKey]
 
 package main
 
+import . "./svg"
+
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -26,16 +28,10 @@ import (
 	"time"
 )
 
+//
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <TYPE DECLARATIONS>
-
-// Represents a type of shape in the BlockArt system.
-type ShapeType int
-
-const (
-	// Path shape.
-	PATH ShapeType = iota
-)
 
 // Represents the type of operation for a shape on the canvas
 type OpType int
@@ -138,14 +134,6 @@ type Block struct {
 	Nonce    uint32
 }
 
-type Shape struct {
-	ShapeType      ShapeType
-	ShapeSvgString string
-	Fill           string
-	Stroke         string
-	Owner          ecdsa.PublicKey
-}
-
 type Operation struct {
 	Type        OpType
 	Shape       Shape
@@ -167,6 +155,8 @@ type MinerInfo struct {
 
 // </TYPE DECLARATIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////
+
+//
 
 var (
 	logger   *log.Logger
@@ -190,6 +180,11 @@ func main() {
 		miner.mineNoOpBlock()
 	}
 }
+
+//
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <PRIVATE METHODS : MINER>
 
 func (m *Miner) init() {
 	args := os.Args[1:]
@@ -457,6 +452,11 @@ func (m *Miner) addBlockChild(block *Block, hash string) {
     }
 }
 
+// </PRIVATE METHODS : MINER>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+//
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <RPC METHODS>
 
@@ -661,8 +661,41 @@ func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) er
     return nil
 }
 
+func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) error {
+    token := request.Token
+    _, validToken := m.tokens[token]
+    if !validToken {
+        response.Error = INVALID_TOKEN
+        return nil
+    }
+
+    validateNum := request.Payload[0].(uint8)
+    shapeType := request.Payload[1].(ShapeType)
+    shapeSvgString := request.Payload[2].(string)
+    fill := request.Payload[3].(string)
+    stroke := request.Payload[4].(string)
+
+    // TODO: Perform validation
+    fmt.Println(validateNum)
+    fmt.Println(shapeType)
+    fmt.Println(shapeSvgString)
+    fmt.Println(fill)
+    fmt.Println(stroke)
+
+    // TODO: Add payload
+    response.Error = NO_ERROR
+    response.Payload = make([]interface{}, 3)
+    response.Payload[0] = ""
+    response.Payload[1] = ""
+    response.Payload[2] = 0
+
+    return nil
+}
+
 // </RPC METHODS>
 ////////////////////////////////////////////////////////////////////////////////////////////
+
+//
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>

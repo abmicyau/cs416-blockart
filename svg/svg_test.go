@@ -1,4 +1,4 @@
-package blockartlib
+package svg
 
 import (
 	"strconv"
@@ -18,10 +18,10 @@ func TestNormalizeSvgString(t *testing.T) {
 
 // Test command parsing
 func TestGetCommands(t *testing.T) {
-	shape := Shape{shapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
+	shape := Shape{ShapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
 	shape.evaluateSvgString()
 
-	commands := shape.commands
+	commands := shape.Commands
 	commandsExpected := []Command{
 		Command{"M", 10, 10},
 		Command{"L", 5, 5},
@@ -48,10 +48,10 @@ func TestGetCommands(t *testing.T) {
 
 // Test vertices generated from commands
 func TestGetVertices(t *testing.T) {
-	shape := Shape{shapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
+	shape := Shape{ShapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
 	shape.evaluateSvgString()
 
-	vertices := shape.vertices
+	vertices := shape.Vertices
 	verticesExpected := []Point{
 		Point{10, 10},
 		Point{5, 5},
@@ -73,18 +73,18 @@ func TestGetVertices(t *testing.T) {
 
 // Test line segments generated from vertices
 func TestGetLineSegments(t *testing.T) {
-	shape1 := Shape{shapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
-	shape2 := Shape{shapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}
+	shape1 := Shape{ShapeSvgString: "   M 10 10 L 5 , 5 h -3 Z"}
+	shape2 := Shape{ShapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}
 	shape1.evaluateSvgString()
 	shape2.evaluateSvgString()
 
-	lineSegments1 := getLineSegments(shape1.vertices)
+	lineSegments1 := getLineSegments(shape1.Vertices)
 	lineSegments1Expected := []LineSegment{
 		LineSegment{a: -5, b: 5, c: 0},
 		LineSegment{a: 0, b: 3, c: 15},
 		LineSegment{a: 5, b: -8, c: -30}}
 
-	lineSegments2 := getLineSegments(shape2.vertices)
+	lineSegments2 := getLineSegments(shape2.Vertices)
 	lineSegments2Expected := []LineSegment{
 		LineSegment{
 			start: Point{5, 5},
@@ -132,16 +132,16 @@ func TestGetLineSegments(t *testing.T) {
 
 // Test line-to-line overlap
 func TestLineOverlap(t *testing.T) {
-	shape1 := Shape{shapeSvgString: "M 10 10 L 5 5 "}
-	shape2 := Shape{shapeSvgString: "M 5 5 L 10 10"}
-	shape3 := Shape{shapeSvgString: "M 7 5 L 5 10 v -2 Z"}
+	shape1 := Shape{ShapeSvgString: "M 10 10 L 5 5 "}
+	shape2 := Shape{ShapeSvgString: "M 5 5 L 10 10"}
+	shape3 := Shape{ShapeSvgString: "M 7 5 L 5 10 v -2 Z"}
 	shape1.evaluateSvgString()
 	shape2.evaluateSvgString()
 	shape3.evaluateSvgString()
 
-	lineSegments1 := getLineSegments(shape1.vertices)
-	lineSegments2 := getLineSegments(shape2.vertices)
-	lineSegments3 := getLineSegments(shape3.vertices)
+	lineSegments1 := getLineSegments(shape1.Vertices)
+	lineSegments2 := getLineSegments(shape2.Vertices)
+	lineSegments3 := getLineSegments(shape3.Vertices)
 
 	// Test parallel lines
 	if lineSegments1[0].intersects(lineSegments2[0]) != true {
@@ -171,11 +171,11 @@ func TestShapeValid(t *testing.T) {
 	xMax := uint32(100)
 	yMax := uint32(100)
 
-	shapeLineInBound := Shape{fill: "transparent", shapeSvgString: "M 10 10 L 5 5 "}
-	shapeOutOfMinBound := Shape{fill: "transparent", shapeSvgString: "M 5 5 h -7"}
-	shapeOutOfMaxBound := Shape{fill: "transparent", shapeSvgString: "M 7 5 h 10000000"}
-	shapeSelfIntersectTrans := Shape{fill: "transparent", shapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
-	shapeSelfIntersectNonTrans := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
+	shapeLineInBound := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5 "}
+	shapeOutOfMinBound := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 h -7"}
+	shapeOutOfMaxBound := Shape{Fill: "transparent", ShapeSvgString: "M 7 5 h 10000000"}
+	shapeSelfIntersectTrans := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
+	shapeSelfIntersectNonTrans := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
 	shapeLineInBound.evaluateSvgString()
 	shapeOutOfMinBound.evaluateSvgString()
 	shapeOutOfMaxBound.evaluateSvgString()
@@ -205,12 +205,12 @@ func TestShapeValid(t *testing.T) {
 
 // Test ink usage
 func TestInkRequired(t *testing.T) {
-	shape1 := Shape{fill: "transparent", shapeSvgString: "M 10 10 L 5 5 "}                               // Line
-	shape2 := Shape{fill: "transparent", shapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}                  // Twisted Square
-	shape3 := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}                     // Square
-	shape4 := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 h 4 l -2 5 z"}                       // Triangle
-	shape5 := Shape{fill: "transparent", shapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}     // Dracula teeth
-	shape6 := Shape{fill: "non-transparent", shapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth
+	shape1 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5 "}                               // Line
+	shape2 := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}                  // Twisted Square
+	shape3 := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}                     // Square
+	shape4 := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                       // Triangle
+	shape5 := Shape{Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}     // Dracula teeth
+	shape6 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth
 	shape1.evaluateSvgString()
 	shape2.evaluateSvgString()
 	shape3.evaluateSvgString()
@@ -246,31 +246,31 @@ func TestInkRequired(t *testing.T) {
 
 // Test overlap
 func TestOverlap(t *testing.T) {
-	triangle := Shape{fill: "transparent", shapeSvgString: "M 5 5 h 4 l -2 5 z"}                                // Triangle -- Transparent
-	triangleFilled := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 h 4 l -2 5 z"}                      // Triangle -- Filled
-	dracula := Shape{fill: "transparent", shapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}           // Dracula teeth -- Transparent
-	draculaFilled := Shape{fill: "non-transparent", shapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth -- Filled
+	triangle := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                                // Triangle -- Transparent
+	triangleFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                      // Triangle -- Filled
+	dracula := Shape{Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}           // Dracula teeth -- Transparent
+	draculaFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth -- Filled
 	triangle.evaluateSvgString()
 	triangleFilled.evaluateSvgString()
 	dracula.evaluateSvgString()
 	draculaFilled.evaluateSvgString()
 
 	// Test polygon surrounding shape
-	square := Shape{fill: "transparent", shapeSvgString: "M 1 1 H 40 V -40 H -40 Z"}
+	square := Shape{Fill: "transparent", ShapeSvgString: "M 1 1 H 40 V -40 H -40 Z"}
 	square.evaluateSvgString()
 	if overlap := triangle.hasOverlap(square); overlap != false {
 		t.Error("Expected big non-filled square not to overlap smaller triangle.")
 	}
 
-	squareFilled := Shape{fill: "non-transparent", shapeSvgString: "M 1 1 h 40 v 40 h -40 Z"}
+	squareFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 1 1 h 40 v 40 h -40 Z"}
 	squareFilled.evaluateSvgString()
 	if overlap := triangle.hasOverlap(squareFilled); overlap != true {
 		t.Error("Expected big filled square to overlap smaller triangle.")
 	}
 
 	// Test basic intersection
-	trans := Shape{fill: "transparent", shapeSvgString: "M 5 5 v 3 h 10 v -5"}
-	filled := Shape{fill: "non-transparent", shapeSvgString: "M 5 5 v 3 h 10 v -5"}
+	trans := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5"}
+	filled := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5"}
 	trans.evaluateSvgString()
 	filled.evaluateSvgString()
 
@@ -284,14 +284,14 @@ func TestOverlap(t *testing.T) {
 	}
 
 	// Test cases with shapes within weird polygons
-	longRectangle := Shape{fill: "transparent", shapeSvgString: "M 15 12 h 1 v 1 h -1 Z"}
-	longRectangleFilled := Shape{fill: "non-transparent", shapeSvgString: "M 15 12 h 1 v 1 h -1 Z"}
-	squareCenter := Shape{fill: "transparent", shapeSvgString: "M 18 6 h 1 v 1 h -1 Z"}
-	squareCenterFilled := Shape{fill: "non-transparent", shapeSvgString: "M 18 6 h 1 v 1 h -1 Z"}
-	squareLeftTooth := Shape{fill: "transparent", shapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
-	squareLeftToothFilled := Shape{fill: "non-transparent", shapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
-	squareBetweenTeeth := Shape{fill: "transparent", shapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
-	squareBetweenTeethFilled := Shape{fill: "non-transparent", shapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
+	longRectangle := Shape{Fill: "transparent", ShapeSvgString: "M 15 12 h 1 v 1 h -1 Z"}
+	longRectangleFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 15 12 h 1 v 1 h -1 Z"}
+	squareCenter := Shape{Fill: "transparent", ShapeSvgString: "M 18 6 h 1 v 1 h -1 Z"}
+	squareCenterFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 18 6 h 1 v 1 h -1 Z"}
+	squareLeftTooth := Shape{Fill: "transparent", ShapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
+	squareLeftToothFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
+	squareBetweenTeeth := Shape{Fill: "transparent", ShapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
+	squareBetweenTeethFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
 	longRectangle.evaluateSvgString()
 	longRectangleFilled.evaluateSvgString()
 	squareCenter.evaluateSvgString()

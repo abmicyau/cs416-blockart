@@ -1,15 +1,56 @@
-package blockartlib
+package svg
 
 import (
+	"fmt"
 	"errors"
 	"math"
 	"regexp"
 	"strconv"
 	"strings"
+	"crypto/ecdsa"
 )
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <OBJECT DEFINTIONS>
+
+// TODO: Remove these errors (since they're already defined in blockartlib)
+// and find some other way to notify for specific erros
+
+// Empty
+type OutOfBoundsError struct{}
+
+func (e OutOfBoundsError) Error() string {
+	return fmt.Sprintf("BlockArt: Shape is outside the bounds of the canvas")
+}
+
+// Contains the offending svg string.
+type InvalidShapeSvgStringError string
+
+func (e InvalidShapeSvgStringError) Error() string {
+	return fmt.Sprintf("BlockArt: Bad shape svg string [%s]", string(e))
+}
+
+// Represents a type of shape in the BlockArt system.
+type ShapeType int
+
+const (
+	// Path shape.
+	PATH ShapeType = iota
+)
+
+type Shape struct {
+	ShapeType      ShapeType
+	ShapeSvgString string
+	Fill           string
+	Stroke         string
+	Owner          ecdsa.PublicKey
+
+    Commands       []Command
+    Vertices       []Point
+    LineSegments   []LineSegment
+    Min            Point
+    Max            Point
+}
 
 // Represents a command with type(M, H, L, m, h, l, etc.)
 // and specified (x, y) coordinate
@@ -24,6 +65,142 @@ type Command struct {
 type Point struct {
 	x int64
 	y int64
+}
+
+// Computes the ink required for the given shape according
+// to the fill specification.
+func (s *Shape) computeInkRequired() (inkUnits uint64) {
+    if s.Fill == "transparent" {
+        inkUnits = computePerimeter(s.LineSegments)
+    } else {
+        inkUnits = computePixelArea(s.Min, s.Max, s.LineSegments)
+    }
+
+    return
+}
+
+// Determines if, within a canvas bound, a proposed shape is valid.
+func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
+    valid = true
+
+    for _, vertex := range s.Vertices {
+        if valid = vertex.inBound(xMax, yMax); !valid {
+            err = new(OutOfBoundsError)
+
+            return
+        }
+    }
+
+    if s.Fill != "transparent" {
+        for i := range s.LineSegments {
+            curSeg := s.LineSegments[i]
+
+            for j := range s.LineSegments {
+                if i != j && curSeg.intersects(s.LineSegments[j]) == true {
+                    valid = false
+                    err = InvalidShapeSvgStringError(s.ShapeSvgString)
+
+                    return
+                }
+            }
+
+            if !valid {
+                break
+            }
+        }
+    }
+
+    return
+}
+
+/* Evaluates a shapes provided SVG string to determine the following:
+- Its min and max bounding box
+- Its parsed commands
+- Its vertices
+- Its line segments
+*/
+func (s *Shape) evaluateSvgString() (err error) {
+    s.Min, s.Max = Point{}, Point{}
+    if s.Commands, err = getCommands(s.ShapeSvgString); err != nil {
+        return
+    }
+
+    vertices := make([]Point, len(s.Commands))
+
+    absPos, relPos := Point{0, 0}, Point{0, 0}
+    for i := range s.Commands {
+        _command := s.Commands[i]
+
+        switch _command.cmdType {
+        case "M":
+            absPos.x, absPos.y = _command.x, _command.y
+            relPos.x, relPos.y = _command.x, _command.y
+
+            vertices[i] = Point{relPos.x, relPos.y}
+        case "H":
+            relPos.x = _command.x
+
+            vertices[i] = Point{relPos.x, absPos.y}
+        case "V":
+            relPos.y = _command.y
+
+            vertices[i] = Point{absPos.x, relPos.y}
+        case "L":
+            relPos.x, relPos.y = _command.x, _command.y
+
+            vertices[i] = Point{relPos.x, relPos.y}
+        case "h":
+            relPos.x = relPos.x + _command.x
+
+            vertices[i] = Point{relPos.x, relPos.y}
+        case "v":
+            relPos.y = relPos.y + _command.y
+
+            vertices[i] = Point{relPos.x, relPos.y}
+        case "l":
+            relPos.x, relPos.y = relPos.x+_command.x, relPos.y+_command.y
+
+            vertices[i] = Point{relPos.x, relPos.y}
+        }
+
+        if i == 0 {
+            s.Min = relPos
+            s.Max = relPos
+        } else {
+            if relPos.x < s.Min.x {
+                s.Min.x = relPos.x
+            } else if relPos.x > s.Max.x {
+                s.Max.x = relPos.x
+            }
+
+            if relPos.y < s.Min.y {
+                s.Min.y = relPos.y
+            } else if relPos.y > s.Max.y {
+                s.Max.y = relPos.y
+            }
+        }
+    }
+
+    s.Vertices = vertices
+    s.LineSegments = getLineSegments(vertices)
+
+    return
+}
+
+// Determines if a proposed shape overlape this shape.
+func (s *Shape) hasOverlap(_s Shape) bool {
+    // Easy preliminary: does the bounding box of _s encompass s
+    if _s.Fill != "transparent" && (_s.Min.x <= s.Min.x && _s.Min.y <= s.Min.y) && (_s.Max.x >= s.Max.x && _s.Max.y >= s.Max.y) {
+        return true
+    }
+
+    if intersectExists(s.LineSegments, _s.LineSegments) {
+        return true
+    } else if s.Fill != "transparent" && containsVertex(s.Min, s.Max, s.LineSegments, _s.Vertices) {
+        return true
+    } else {
+        return false
+    }
 }
 
 func (p Point) inBound(xMax uint32, yMax uint32) bool {

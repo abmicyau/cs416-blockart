@@ -407,8 +407,22 @@ func (c CanvasInstance) GetGenesisBlock() (blockHash string, err error) {
 // - DisconnectedError
 // - InvalidBlockHashError
 func (c CanvasInstance) GetChildren(blockHash string) (blockHashes []string, err error) {
-	// TODO
-	return make([]string, 0), nil
+	request := new(ArtnodeRequest)
+	request.Token = c.Token
+	request.Payload = make([]interface{}, 1)
+	request.Payload[0] = blockHash
+	response := new(MinerResponse)
+
+	err = c.Miner.Call("Miner.GetChildren", request, response)
+	if checkError(err) != nil || response.Error == INVALID_TOKEN {
+		return []string{}, DisconnectedError(c.MinerAddr)
+	} else if response.Error == INVALID_BLOCK_HASH {
+		return []string{}, InvalidBlockHashError(blockHash)
+	}
+
+	blockHashes = response.Payload[0].([]string)
+
+	return blockHashes, nil
 }
 
 // Closes the canvas/connection to the BlockArt network.

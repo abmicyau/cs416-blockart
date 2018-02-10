@@ -1,13 +1,13 @@
 package svg
 
 import (
-	"fmt"
+	"crypto/ecdsa"
 	"errors"
+	"fmt"
 	"math"
 	"regexp"
 	"strconv"
 	"strings"
-	"crypto/ecdsa"
 )
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -45,11 +45,11 @@ type Shape struct {
 	Stroke         string
 	Owner          ecdsa.PublicKey
 
-    Commands       []Command
-    Vertices       []Point
-    LineSegments   []LineSegment
-    Min            Point
-    Max            Point
+	Commands     []Command
+	Vertices     []Point
+	LineSegments []LineSegment
+	Min          Point
+	Max          Point
 }
 
 // Represents a command with type(M, H, L, m, h, l, etc.)
@@ -70,47 +70,47 @@ type Point struct {
 // Computes the ink required for the given shape according
 // to the fill specification.
 func (s *Shape) computeInkRequired() (inkUnits uint64) {
-    if s.Fill == "transparent" {
-        inkUnits = computePerimeter(s.LineSegments)
-    } else {
-        inkUnits = computePixelArea(s.Min, s.Max, s.LineSegments)
-    }
+	if s.Fill == "transparent" {
+		inkUnits = computePerimeter(s.LineSegments)
+	} else {
+		inkUnits = computePixelArea(s.Min, s.Max, s.LineSegments)
+	}
 
-    return
+	return
 }
 
 // Determines if, within a canvas bound, a proposed shape is valid.
 func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
-    valid = true
+	valid = true
 
-    for _, vertex := range s.Vertices {
-        if valid = vertex.inBound(xMax, yMax); !valid {
-            err = new(OutOfBoundsError)
+	for _, vertex := range s.Vertices {
+		if valid = vertex.inBound(xMax, yMax); !valid {
+			err = new(OutOfBoundsError)
 
-            return
-        }
-    }
+			return
+		}
+	}
 
-    if s.Fill != "transparent" {
-        for i := range s.LineSegments {
-            curSeg := s.LineSegments[i]
+	if s.Fill != "transparent" {
+		for i := range s.LineSegments {
+			curSeg := s.LineSegments[i]
 
-            for j := range s.LineSegments {
-                if i != j && curSeg.intersects(s.LineSegments[j]) == true {
-                    valid = false
-                    err = InvalidShapeSvgStringError(s.ShapeSvgString)
+			for j := range s.LineSegments {
+				if i != j && curSeg.Intersects(s.LineSegments[j]) == true {
+					valid = false
+					err = InvalidShapeSvgStringError(s.ShapeSvgString)
 
-                    return
-                }
-            }
+					return
+				}
+			}
 
-            if !valid {
-                break
-            }
-        }
-    }
+			if !valid {
+				break
+			}
+		}
+	}
 
-    return
+	return
 }
 
 /* Evaluates a shapes provided SVG string to determine the following:
@@ -120,87 +120,87 @@ func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 - Its line segments
 */
 func (s *Shape) evaluateSvgString() (err error) {
-    s.Min, s.Max = Point{}, Point{}
-    if s.Commands, err = getCommands(s.ShapeSvgString); err != nil {
-        return
-    }
+	s.Min, s.Max = Point{}, Point{}
+	if s.Commands, err = getCommands(s.ShapeSvgString); err != nil {
+		return
+	}
 
-    vertices := make([]Point, len(s.Commands))
+	vertices := make([]Point, len(s.Commands))
 
-    absPos, relPos := Point{0, 0}, Point{0, 0}
-    for i := range s.Commands {
-        _command := s.Commands[i]
+	absPos, relPos := Point{0, 0}, Point{0, 0}
+	for i := range s.Commands {
+		_command := s.Commands[i]
 
-        switch _command.CmdType {
-        case "M":
-            absPos.X, absPos.Y = _command.X, _command.Y
-            relPos.X, relPos.Y = _command.X, _command.Y
+		switch _command.CmdType {
+		case "M":
+			absPos.X, absPos.Y = _command.X, _command.Y
+			relPos.X, relPos.Y = _command.X, _command.Y
 
-            vertices[i] = Point{relPos.X, relPos.Y}
-        case "H":
-            relPos.X = _command.X
+			vertices[i] = Point{relPos.X, relPos.Y}
+		case "H":
+			relPos.X = _command.X
 
-            vertices[i] = Point{relPos.X, absPos.Y}
-        case "V":
-            relPos.Y = _command.Y
+			vertices[i] = Point{relPos.X, absPos.Y}
+		case "V":
+			relPos.Y = _command.Y
 
-            vertices[i] = Point{absPos.X, relPos.Y}
-        case "L":
-            relPos.X, relPos.Y = _command.X, _command.Y
+			vertices[i] = Point{absPos.X, relPos.Y}
+		case "L":
+			relPos.X, relPos.Y = _command.X, _command.Y
 
-            vertices[i] = Point{relPos.X, relPos.Y}
-        case "h":
-            relPos.X = relPos.X + _command.X
+			vertices[i] = Point{relPos.X, relPos.Y}
+		case "h":
+			relPos.X = relPos.X + _command.X
 
-            vertices[i] = Point{relPos.X, relPos.Y}
-        case "v":
-            relPos.Y = relPos.Y + _command.Y
+			vertices[i] = Point{relPos.X, relPos.Y}
+		case "v":
+			relPos.Y = relPos.Y + _command.Y
 
-            vertices[i] = Point{relPos.X, relPos.Y}
-        case "l":
-            relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+			vertices[i] = Point{relPos.X, relPos.Y}
+		case "l":
+			relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
 
-            vertices[i] = Point{relPos.X, relPos.Y}
-        }
+			vertices[i] = Point{relPos.X, relPos.Y}
+		}
 
-        if i == 0 {
-            s.Min = relPos
-            s.Max = relPos
-        } else {
-            if relPos.X < s.Min.X {
-                s.Min.X = relPos.X
-            } else if relPos.X > s.Max.X {
-                s.Max.X = relPos.X
-            }
+		if i == 0 {
+			s.Min = relPos
+			s.Max = relPos
+		} else {
+			if relPos.X < s.Min.X {
+				s.Min.X = relPos.X
+			} else if relPos.X > s.Max.X {
+				s.Max.X = relPos.X
+			}
 
-            if relPos.Y < s.Min.Y {
-                s.Min.Y = relPos.Y
-            } else if relPos.Y > s.Max.Y {
-                s.Max.Y = relPos.Y
-            }
-        }
-    }
+			if relPos.Y < s.Min.Y {
+				s.Min.Y = relPos.Y
+			} else if relPos.Y > s.Max.Y {
+				s.Max.Y = relPos.Y
+			}
+		}
+	}
 
-    s.Vertices = vertices
-    s.LineSegments = getLineSegments(vertices)
+	s.Vertices = vertices
+	s.LineSegments = getLineSegments(vertices)
 
-    return
+	return
 }
 
 // Determines if a proposed shape overlape this shape.
 func (s *Shape) hasOverlap(_s Shape) bool {
-    // Easy preliminary: does the bounding box of _s encompass s
-    if _s.Fill != "transparent" && (_s.Min.X <= s.Min.X && _s.Min.Y <= s.Min.Y) && (_s.Max.X >= s.Max.X && _s.Max.Y >= s.Max.Y) {
-        return true
-    }
+	// Easy preliminary: does the bounding box of _s encompass s
+	if _s.Fill != "transparent" && (_s.Min.X <= s.Min.X && _s.Min.Y <= s.Min.Y) && (_s.Max.X >= s.Max.X && _s.Max.Y >= s.Max.Y) {
+		return true
+	}
 
-    if intersectExists(s.LineSegments, _s.LineSegments) {
-        return true
-    } else if s.Fill != "transparent" && containsVertex(s.Min, s.Max, s.LineSegments, _s.Vertices) {
-        return true
-    } else {
-        return false
-    }
+	if intersectExists(s.LineSegments, _s.LineSegments) {
+		return true
+	} else if s.Fill != "transparent" && containsVertex(s.Min, s.Max, s.LineSegments, _s.Vertices) {
+		return true
+	} else {
+		return false
+	}
 }
 
 func (p Point) inBound(xMax uint32, yMax uint32) bool {
@@ -210,21 +210,21 @@ func (p Point) inBound(xMax uint32, yMax uint32) bool {
 // Represents a line segment with start and end points
 // and implicit equation format ax + by = c
 type LineSegment struct {
-	start Point
-	end   Point
+	Start Point
+	End   Point
 
-	a int64
-	b int64
-	c int64
+	A int64
+	B int64
+	C int64
 }
 
 // Determines the length of a given line segments
 // rounding to the nearest integer greater than the float
-func (l LineSegment) length() uint64 {
-	if l.start == l.end {
+func (l LineSegment) Length() uint64 {
+	if l.Start == l.End {
 		return 1
 	} else {
-		a, b := float64(l.start.X-l.end.X), float64(l.start.Y-l.end.Y)
+		a, b := float64(l.Start.X-l.End.X), float64(l.Start.Y-l.End.Y)
 		c := math.Sqrt(math.Pow(a, 2) + math.Pow(b, 2))
 
 		return uint64(math.Ceil(c))
@@ -232,17 +232,17 @@ func (l LineSegment) length() uint64 {
 }
 
 // Determines if a point lies on a line segment
-func (l LineSegment) hasPoint(p Point) bool {
-	x1, y1, x2, y2 := l.start.X, l.start.Y, l.end.X, l.end.Y
+func (l LineSegment) HasPoint(p Point) bool {
+	x1, y1, x2, y2 := l.Start.X, l.Start.Y, l.End.X, l.End.Y
 
 	return ((y1 <= p.Y && p.Y <= y2) || (y1 >= p.Y && p.Y >= y2)) &&
 		((x1 <= p.X && p.X <= x2) || (x1 >= p.X && p.X >= x2))
 }
 
 // Determines if two line segments are parallel
-func (l LineSegment) isColinear(_l LineSegment) bool {
-	a1, b1, c1 := l.a, l.b, l.c
-	a2, b2, c2 := _l.a, _l.b, _l.c
+func (l LineSegment) IsColinear(_l LineSegment) bool {
+	a1, b1, c1 := l.A, l.B, l.C
+	a2, b2, c2 := _l.B, _l.B, _l.C
 
 	if a1 == a2 && b1 == b2 && c1 == c2 {
 		return true
@@ -253,27 +253,27 @@ func (l LineSegment) isColinear(_l LineSegment) bool {
 	}
 }
 
-func (l LineSegment) hasColinearIntersect(_l LineSegment) bool {
-	a1, b1 := l.a, l.b
-	a2, b2 := _l.a, _l.b
+func (l LineSegment) HasColinearIntersect(_l LineSegment) bool {
+	a1, b1 := l.A, l.B
+	a2, b2 := _l.A, _l.B
 
 	det := a1*b2 - a2*b1
-	if det == 0 && (l.hasPoint(_l.start) || l.hasPoint(_l.end)) {
+	if det == 0 && (l.HasPoint(_l.Start) || l.HasPoint(_l.End)) {
 		return true
 	} else {
 		return false
 	}
 }
 
-func (l LineSegment) getIntersect(_l LineSegment) (point Point, err error) {
+func (l LineSegment) GetIntersect(_l LineSegment) (point Point, err error) {
 	var x, y int64
 
-	a1, b1, c1 := l.a, l.b, l.c
-	a2, b2, c2 := _l.a, _l.b, _l.c
+	a1, b1, c1 := l.A, l.B, l.C
+	a2, b2, c2 := _l.A, _l.B, _l.C
 
 	det := a1*b2 - a2*b1
 	if det == 0 {
-		if l.hasPoint(_l.start) || l.hasPoint(_l.end) {
+		if l.HasPoint(_l.Start) || l.HasPoint(_l.End) {
 			err = errors.New("Lines are colinear.")
 		} else {
 			err = errors.New("Lines are parallel but not colinear.")
@@ -286,7 +286,7 @@ func (l LineSegment) getIntersect(_l LineSegment) (point Point, err error) {
 	}
 
 	p := Point{x, y}
-	if l.hasPoint(p) && _l.hasPoint(p) {
+	if l.HasPoint(p) && _l.HasPoint(p) {
 		point = p
 	} else {
 		err = errors.New("No intersect exists.")
@@ -297,11 +297,11 @@ func (l LineSegment) getIntersect(_l LineSegment) (point Point, err error) {
 
 // Determines if two line segment intersect within
 // their given start and end points
-func (l LineSegment) intersects(_l LineSegment) bool {
-	colinear := l.isColinear(_l)
-	if colinear && l.hasColinearIntersect(_l) {
+func (l LineSegment) Intersects(_l LineSegment) bool {
+	colinear := l.IsColinear(_l)
+	if colinear && l.HasColinearIntersect(_l) {
 		return true
-	} else if _, err := l.getIntersect(_l); err == nil {
+	} else if _, err := l.GetIntersect(_l); err == nil {
 		return true
 	} else {
 		return false
@@ -440,9 +440,9 @@ func vertexExists(v Point, vertices []Point) bool {
 // Determines if a line segment exists in a set of line segments
 func segmentExists(lineSegment LineSegment, lineSegments []LineSegment) bool {
 	for _, _lineSegment := range lineSegments {
-		if lineSegment.start == _lineSegment.start && lineSegment.end == _lineSegment.end {
+		if lineSegment.Start == _lineSegment.Start && lineSegment.End == _lineSegment.End {
 			return true
-		} else if lineSegment.start == _lineSegment.end && lineSegment.end == _lineSegment.start {
+		} else if lineSegment.Start == _lineSegment.End && lineSegment.End == _lineSegment.Start {
 			return true
 		}
 	}
@@ -452,12 +452,12 @@ func segmentExists(lineSegment LineSegment, lineSegments []LineSegment) bool {
 
 // Extracts line segment from 2 vertices
 func getLineSegment(v1 Point, v2 Point) (lineSegment LineSegment) {
-	lineSegment.start = v1
-	lineSegment.end = v2
+	lineSegment.Start = v1
+	lineSegment.End = v2
 
-	lineSegment.a = v2.Y - v1.Y
-	lineSegment.b = v1.X - v2.X
-	lineSegment.c = lineSegment.a*v1.X + lineSegment.b*v1.Y
+	lineSegment.A = v2.Y - v1.Y
+	lineSegment.A = v1.X - v2.X
+	lineSegment.C = lineSegment.A*v1.X + lineSegment.B*v1.Y
 
 	return
 }
@@ -466,7 +466,7 @@ func getLineSegment(v1 Point, v2 Point) (lineSegment LineSegment) {
 func intersectExists(lineSegments []LineSegment, _lineSegments []LineSegment) bool {
 	for _, _lineSegment := range _lineSegments {
 		for _, lineSegment := range lineSegments {
-			if intersect := lineSegment.intersects(_lineSegment); intersect {
+			if intersect := lineSegment.Intersects(_lineSegment); intersect {
 				return true
 			}
 		}
@@ -523,12 +523,12 @@ func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
 			v2 = vertices[i+1]
 		}
 
-		lineSegment.start = v1
-		lineSegment.end = v2
+		lineSegment.Start = v1
+		lineSegment.End = v2
 
-		lineSegment.a = v2.Y - v1.Y
-		lineSegment.b = v1.X - v2.X
-		lineSegment.c = lineSegment.a*v1.X + lineSegment.b*v1.Y
+		lineSegment.A = v2.Y - v1.Y
+		lineSegment.B = v1.X - v2.X
+		lineSegment.C = lineSegment.A*v1.X + lineSegment.B*v1.Y
 
 		lineSegments = append(lineSegments, lineSegment)
 	}
@@ -546,11 +546,11 @@ func containsVertex(min Point, max Point, lineSegments []LineSegment, vertices [
 
 		// Get all polygon intersects on this scanline
 		for _, l := range lineSegments {
-			if scanLine.isColinear(l) {
-				polyIntersects = append(polyIntersects, l.start, l.end)
+			if scanLine.IsColinear(l) {
+				polyIntersects = append(polyIntersects, l.Start, l.End)
 			} else {
-				hasIntersect := l.intersects(scanLine)
-				intersect, err := l.getIntersect(scanLine)
+				hasIntersect := l.Intersects(scanLine)
+				intersect, err := l.GetIntersect(scanLine)
 				if hasIntersect && err == nil && !vertexExists(intersect, polyIntersects) {
 					polyIntersects = append(polyIntersects, intersect)
 				}
@@ -559,7 +559,7 @@ func containsVertex(min Point, max Point, lineSegments []LineSegment, vertices [
 
 		// Get all vertex intersects on this scanline
 		for _, v := range vertices {
-			if scanLine.hasPoint(v) {
+			if scanLine.HasPoint(v) {
 				vertexIntersects = append(vertexIntersects, v)
 			}
 		}
@@ -580,7 +580,7 @@ func computePerimeter(lineSegments []LineSegment) (perimeter uint64) {
 		if !segmentExists(lineSegment, computedSegments) {
 			computedSegments = append(computedSegments, lineSegment)
 
-			perimeter = perimeter + lineSegment.length()
+			perimeter = perimeter + lineSegment.Length()
 		}
 	}
 
@@ -617,11 +617,11 @@ func computePixelArea(min Point, max Point, lineSegments []LineSegment) (area ui
 
 		// Check intersections with all line segments
 		for _, l := range lineSegments {
-			if scanLine.isColinear(l) { // If parallel, extract the start and end points
-				intersects = append(intersects, l.start, l.end)
+			if scanLine.IsColinear(l) { // If parallel, extract the start and end points
+				intersects = append(intersects, l.Start, l.End)
 			} else { // Get intersection
-				hasIntersect := l.intersects(scanLine)
-				if intersect, err := l.getIntersect(scanLine); hasIntersect && err == nil {
+				hasIntersect := l.Intersects(scanLine)
+				if intersect, err := l.GetIntersect(scanLine); hasIntersect && err == nil {
 					intersects = append(intersects, intersect)
 				}
 			}
@@ -652,14 +652,14 @@ func computePixelArea(min Point, max Point, lineSegments []LineSegment) (area ui
 			for {
 				lineSegment := getLineSegment(intersects[i], intersects[i+1])
 
-				if lineSegment.start == lineSegment.end { // If both vertices are same point, incremement by one
+				if lineSegment.Start == lineSegment.End { // If both vertices are same point, incremement by one
 					i = i + 1
 				} else if segmentExists(lineSegment, computedSegments) { // If we already calculated this segment, skip
 					i = i + 2
 				} else { // Otherwise, we have a valid segment, add length to area
 					computedSegments = append(computedSegments, lineSegment)
 
-					area = area + lineSegment.length()
+					area = area + lineSegment.Length()
 					i = i + 2
 				}
 

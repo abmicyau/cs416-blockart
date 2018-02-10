@@ -80,39 +80,39 @@ func TestGetLineSegments(t *testing.T) {
 
 	lineSegments1 := getLineSegments(shape1.Vertices)
 	lineSegments1Expected := []LineSegment{
-		LineSegment{a: -5, b: 5, c: 0},
-		LineSegment{a: 0, b: 3, c: 15},
-		LineSegment{a: 5, b: -8, c: -30}}
+		LineSegment{A: -5, B: 5, C: 0},
+		LineSegment{A: 0, B: 3, C: 15},
+		LineSegment{A: 5, B: -8, C: -30}}
 
 	lineSegments2 := getLineSegments(shape2.Vertices)
 	lineSegments2Expected := []LineSegment{
 		LineSegment{
-			start: Point{5, 5},
-			end:   Point{10, 5}},
+			Start: Point{5, 5},
+			End:   Point{10, 5}},
 		LineSegment{
-			start: Point{10, 5},
-			end:   Point{10, 10}},
+			Start: Point{10, 5},
+			End:   Point{10, 10}},
 		LineSegment{
-			start: Point{10, 10},
-			end:   Point{5, 10}},
+			Start: Point{10, 10},
+			End:   Point{5, 10}},
 		LineSegment{
-			start: Point{5, 10},
-			end:   Point{5, 5}}}
+			Start: Point{5, 10},
+			End:   Point{5, 5}}}
 
 	for i := range lineSegments1 {
 		lineSegment := lineSegments1[i]
 		lineSegmentExpected := lineSegments1Expected[i]
 
-		if lineSegment.a != lineSegmentExpected.a {
-			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.a))+", got ", strconv.Itoa(int(lineSegment.a)))
+		if lineSegment.A != lineSegmentExpected.A {
+			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.A))+", got ", strconv.Itoa(int(lineSegment.A)))
 		}
 
-		if lineSegment.b != lineSegmentExpected.b {
-			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.b))+", got ", strconv.Itoa(int(lineSegment.b)))
+		if lineSegment.B != lineSegmentExpected.B {
+			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.B))+", got ", strconv.Itoa(int(lineSegment.B)))
 		}
 
-		if lineSegment.c != lineSegmentExpected.c {
-			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.c))+", got ", strconv.Itoa(int(lineSegment.c)))
+		if lineSegment.C != lineSegmentExpected.C {
+			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.C))+", got ", strconv.Itoa(int(lineSegment.C)))
 		}
 	}
 
@@ -120,11 +120,11 @@ func TestGetLineSegments(t *testing.T) {
 		lineSegment := lineSegments2[i]
 		lineSegmentExpected := lineSegments2Expected[i]
 
-		if lineSegment.start != lineSegmentExpected.start {
+		if lineSegment.Start != lineSegmentExpected.Start {
 			t.Error("Start point mismatch on line segment.")
 		}
 
-		if lineSegment.end != lineSegmentExpected.end {
+		if lineSegment.End != lineSegmentExpected.End {
 			t.Error("End point mismatch on line segment.")
 		}
 	}
@@ -144,24 +144,24 @@ func TestLineOverlap(t *testing.T) {
 	lineSegments3 := getLineSegments(shape3.Vertices)
 
 	// Test parallel lines
-	if lineSegments1[0].intersects(lineSegments2[0]) != true {
+	if lineSegments1[0].Intersects(lineSegments2[0]) != true {
 		t.Error("Expected true, got false")
 	}
 
-	if lineSegments1[0].intersects(lineSegments2[1]) != true {
+	if lineSegments1[0].Intersects(lineSegments2[1]) != true {
 		t.Error("Expected true, got false")
 	}
 
 	// Test non-parallel lines
-	if lineSegments1[0].intersects(lineSegments3[0]) != true {
+	if lineSegments1[0].Intersects(lineSegments3[0]) != true {
 		t.Error("Expected true, got false")
 	}
 
-	if lineSegments1[0].intersects(lineSegments3[2]) != true {
+	if lineSegments1[0].Intersects(lineSegments3[2]) != true {
 		t.Error("Expected true, got false")
 	}
 
-	if lineSegments1[0].intersects(lineSegments3[1]) != false {
+	if lineSegments1[0].Intersects(lineSegments3[1]) != false {
 		t.Error("Expected false, got true")
 	}
 }

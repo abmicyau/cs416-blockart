@@ -242,7 +242,7 @@ func (l LineSegment) HasPoint(p Point) bool {
 // Determines if two line segments are parallel
 func (l LineSegment) IsColinear(_l LineSegment) bool {
 	a1, b1, c1 := l.A, l.B, l.C
-	a2, b2, c2 := _l.B, _l.B, _l.C
+	a2, b2, c2 := _l.A, _l.B, _l.C
 
 	if a1 == a2 && b1 == b2 && c1 == c2 {
 		return true
@@ -456,7 +456,7 @@ func getLineSegment(v1 Point, v2 Point) (lineSegment LineSegment) {
 	lineSegment.End = v2
 
 	lineSegment.A = v2.Y - v1.Y
-	lineSegment.A = v1.X - v2.X
+	lineSegment.B = v1.X - v2.X
 	lineSegment.C = lineSegment.A*v1.X + lineSegment.B*v1.Y
 
 	return

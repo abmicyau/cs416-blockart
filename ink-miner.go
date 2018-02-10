@@ -126,6 +126,9 @@ type Miner struct {
 	nonces                    map[string]bool
 	tokens                    map[string]bool
 	newLongestChain           chan bool
+	unminedOps                map[string]OperationRecord
+	unvalidatedOps            map[string]OperationRecord
+	validatedOps              map[string]OperationRecord
 }
 
 type Block struct {
@@ -171,6 +174,8 @@ func main() {
 	gob.Register(&net.TCPAddr{})
 	gob.Register([]Block{})
 	gob.Register(Block{})
+	gob.Register(Operation{})
+	gob.Register(OperationRecord{})
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()
@@ -556,6 +561,25 @@ func (m *Miner) addBlockChild(block *Block, hash string) {
 
 //
 
+// Sends block to all connected miners
+// Makes sure that enough miners are connected; if under minimum, it calls for more
+func (m *Miner) disseminateOpToConnectedMiners(opRec OperationRecord) {
+	m.getMiners() // checks all miners, connects to more if needed
+	request := new(MinerRequest)
+	request.Payload = make([]interface{}, 1)
+	request.Payload[0] = opRec
+	response := new(MinerResponse)
+	for minerAddr, minerCon := range m.miners {
+		var isConnected bool
+		minerCon.Call("Miner.PingMiner", "", &isConnected)
+		if isConnected {
+			minerCon.Call("Miner.SendOp", request, response)
+		} else {
+			delete(m.miners, minerAddr)
+		}
+	}
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <RPC METHODS>
 
@@ -651,6 +675,25 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 
 		//		Disseminate Block to connected Miners
 		m.disseminateToConnectedMiners(block, blockHash)
+	}
+	return nil
+}
+
+func (m *Miner) SendOp(request *MinerRequest, response *MinerResponse) error {
+	logger.Println("Received Block: ", request.Payload[1].(string))
+
+	opRec := request.Payload[0].(OperationRecord)
+	isSigValid := m.validateOp(opRec)
+	// If new block, disseminate
+	_, unMinedExists := m.unminedOps[opRec.OpSig]
+	_, unValidExists := m.unvalidatedOps[opRec.OpSig]
+	_, validExists := m.validatedOps[opRec.OpSig]
+
+	if !unMinedExists && !unValidExists && !validExists && isSigValid {
+		m.unminedOps[opRec.OpSig] = opRec
+
+		//	Disseminate Op to connected Miners
+		m.disseminateOpToConnectedMiners(opRec)
 	}
 	return nil
 }
@@ -840,6 +883,12 @@ func (m *Miner) validateBlock(block Block, blockHash string) bool {
 		return true
 	}
 	return false
+}
+
+// Asserts the following about a given OperationRecord:
+// TODO: shape, ink and valid sig
+func (m *Miner) validateOp(opRec OperationRecord) bool {
+	return true
 }
 
 // </RPC METHODS>

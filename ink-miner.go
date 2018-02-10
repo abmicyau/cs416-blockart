@@ -124,7 +124,7 @@ type Miner struct {
 	privKey                   ecdsa.PrivateKey
 	pubKeyString              string
 	shapes                    map[string]*Shape
-	inkRemaining              uint32
+	inkAccounts               map[string]uint32
 	settings                  *MinerNetSettings
 	nonces                    map[string]bool
 	tokens                    map[string]bool
@@ -141,7 +141,7 @@ type Block struct {
 
 type Shape struct {
 	ShapeType      ShapeType
-	ShapeSvgString string
+	Path           string
 	Fill           string
 	Stroke         string
 	Owner          ecdsa.PublicKey
@@ -200,6 +200,8 @@ func (m *Miner) init() {
 	m.nonces = make(map[string]bool)
 	m.tokens = make(map[string]bool)
 	m.miners = make(map[string]*rpc.Client)
+    m.inkAccounts = make(map[string]uint32)
+    m.inkAccounts[m.pubKeyString] = 0
 	if len(args) <= 1 {
 		logger.Fatalln("Missing keys, please generate with: go run generateKeys.go")
 		// Can uncomment for lazy generate, just uncomment the bottom chunk
@@ -259,6 +261,9 @@ func (m *Miner) listenRPC() {
 // Ink miner registers their address and public key to the server and starts sending heartbeats
 func (m *Miner) registerWithServer() {
 	serverConn, err := rpc.Dial("tcp", m.serverAddr)
+    if checkError(err) != nil {
+        log.Fatal("Server is not reachable")
+    }
 	settings := new(MinerNetSettings)
 	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, settings)
 	if checkError(err) != nil {
@@ -342,6 +347,9 @@ func (m *Miner) getLongestChain() {
 		m.longestChainLastBlockHash = longestBlockHash
 		logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
 	}
+
+    // Create a dummy block as the genesis block
+    m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKeyString, 0}
 }
 
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
@@ -353,7 +361,7 @@ func (m *Miner) mineNoOpBlock() {
 
 	if m.longestChainLastBlockHash == "" {
 		prevHash = m.settings.GenesisBlockHash
-		blockNo = 0
+		blockNo = 1
 	} else {
 		prevHash = m.longestChainLastBlockHash
 		blockNo = m.blockchain[prevHash].BlockNo + 1
@@ -376,7 +384,7 @@ func (m *Miner) mineNoOpBlock() {
 				m.blockchain[blockHash] = block
 				logger.Println("Current BlockChainMap: ", m.blockchain)
 				m.longestChainLastBlockHash = blockHash
-				m.update(block)
+				m.applyBlock(block)
 				m.disseminateToConnectedMiners(*block, blockHash)
 				return
 			} else {
@@ -394,72 +402,122 @@ func (m *Miner) mineNoOpBlock() {
 // This includes:
 //  - Adding new shapes to the shape collection
 //  - Removing deleted shapes from the shape collection
-//  - Updating the amount of ink that the miner has remaining
-//
-// Miner.update() has a complimentary function, Miner.revert(). See below.
+//  - Updating the amount of ink that each miner has remaining
 //
 // ! Assumption: an ADD and REMOVE operation for the same shape will
 // not exist in the same block.
 //
-// TODO #1: Remember that any time we switch blockchains (for example,
-// the if current one is outrun), we must reverse all operations up
-// to the most recent ancestor and re-apply state changes that can be
-// derived from the new chain.
+// TODO: Use a lock to ensure thread safety.
 //
-// TODO #2: Use a lock to ensure thread safety.
-//
-func (m *Miner) update(block *Block) {
+func (m *Miner) applyBlock(block *Block) {
 	// update shapes and ink per operation
 	for _, record := range block.Records {
 		op := record.Op
+        if _, exists := m.inkAccounts[record.PubKeyString]; !exists {
+            m.inkAccounts[record.PubKeyString] = 0
+        }
 		if op.Type == ADD {
 			m.shapes[op.ShapeHash] = &op.Shape
-			if record.PubKeyString == m.pubKeyString {
-				m.inkRemaining -= op.InkCost
-			}
+            m.inkAccounts[record.PubKeyString] -= op.InkCost
 		} else {
 			delete(m.shapes, op.ShapeHash)
-			if record.PubKeyString == m.pubKeyString {
-				m.inkRemaining += op.InkCost
-			}
+			m.inkAccounts[record.PubKeyString] += op.InkCost
 		}
 	}
 
-	// add ink for the newly mined block if it was mined by this miner
-	if block.PubKeyString == m.pubKeyString {
-		if len(block.Records) == 0 {
-			m.inkRemaining += m.settings.InkPerNoOpBlock
-		} else {
-			m.inkRemaining += m.settings.InkPerOpBlock
-		}
-	}
+    // add ink for the newly mined block
+    if _, exists := m.inkAccounts[block.PubKeyString]; !exists {
+        m.inkAccounts[block.PubKeyString] = 0
+    }
+    if len(block.Records) == 0 {
+        m.inkAccounts[block.PubKeyString] += m.settings.InkPerNoOpBlock
+    } else {
+        m.inkAccounts[block.PubKeyString] += m.settings.InkPerOpBlock
+    }
 }
 
-// Reverses update(). Used to roll back during a branch switch.
+// Reverses applyBlock(), for rolling back during a branch switch.
 //
-func (m *Miner) revert(block *Block) {
-	for _, record := range block.Records {
-		op := record.Op
-		if op.Type == REMOVE {
-			m.shapes[op.ShapeHash] = &op.Shape
-			if record.PubKeyString == m.pubKeyString {
-				m.inkRemaining -= op.InkCost
-			}
-		} else {
-			delete(m.shapes, op.ShapeHash)
-			if record.PubKeyString == m.pubKeyString {
-				m.inkRemaining += op.InkCost
-			}
-		}
-	}
+func (m *Miner) revertBlock(block *Block) {
+    for _, record := range block.Records {
+        op := record.Op
+        if op.Type == REMOVE {
+            m.shapes[op.ShapeHash] = &op.Shape
+            m.inkAccounts[record.PubKeyString] -= op.InkCost
+        } else {
+            delete(m.shapes, op.ShapeHash)
+            m.inkAccounts[record.PubKeyString] += op.InkCost
+        }
+    }
 
-	if block.PubKeyString == m.pubKeyString {
-		if len(block.Records) == 0 {
-			m.inkRemaining -= m.settings.InkPerNoOpBlock
-		} else {
-			m.inkRemaining -= m.settings.InkPerOpBlock
-		}
-	}
+    // add ink for the newly mined block
+    if len(block.Records) == 0 {
+        m.inkAccounts[block.PubKeyString] -= m.settings.InkPerNoOpBlock
+    } else {
+        m.inkAccounts[block.PubKeyString] -= m.settings.InkPerOpBlock
+    }
+}
+
+// Manages miner state updates during a branch switch:
+//
+// 1. A series of applyBlock() and revertBlock() calls are performed up to the
+//    most recent ancestor of the current blockchain head and the new (longer)
+//    blockchain head so that the miner state reflects that of the new head.
+//    Note that this method is also called for the case of a simple fast-
+//    forward, where the most recent ancestor will be one of the blocks
+//    themself.
+//
+// 2. The miner's current blockchain head is updated.
+//
+// Assumption: oldBlockHash and newBlockHash must both be valid block hashes
+// for blocks which exist in the miner's current block map, and are both
+// connected to the genesis block. If this is not the case, then some bad
+// shit is gonna happen.
+//
+// TODO: Now we REALLY need a lock on the miner. These miner state updates
+// are race conditions waiting to happen...
+//
+func (m *Miner) switchBranches(oldBlockHash, newBlockHash string) {
+    // newBlock and oldBlock are "current" block pointers in the new and
+    // old blockchain, respectively, as we traverse backwards
+    newBlock := m.blockchain[newBlockHash]
+    oldBlock := m.blockchain[oldBlockHash]
+
+    for newBlock.BlockNo > oldBlock.BlockNo {
+        m.applyBlock(newBlock)
+        prevHash := newBlock.PrevHash
+        if prevHash == oldBlockHash {
+            // In the case of a fast-forward, the previous hash of the new
+            // block will eventually be equal to the hash of the old blockchain
+            // head. When it reaches that point, we can return, as we are done
+            // applying all necessary state updates in the new chain.
+            m.longestChainLastBlockHash = newBlockHash
+            m.newLongestChain <- true
+            return
+        }
+
+        newBlock = m.blockchain[prevHash]
+    }
+
+    // If we reach this point, that means the block number of the new block is
+    // equal to the block number of the old block, but their block hashes are
+    // not equal. Therefore, they are on separate branches (of what are now equal
+    // length), so we can now make both block pointers move backwards, adjusting
+    // the miner state along the way, until their previous hashes are equal. The
+    // fact that the loop guard comes at the end accounts for the last traversal
+    // step, as well as the edge case where both branches are only of length 1.
+    for {
+        m.applyBlock(newBlock)
+        m.revertBlock(oldBlock)
+        newBlock = m.blockchain[newBlock.PrevHash]
+        oldBlock = m.blockchain[oldBlock.PrevHash]
+        if newBlock.PrevHash == oldBlock.PrevHash {
+            break
+        }
+    }
+
+    m.longestChainLastBlockHash = newBlockHash
+    m.newLongestChain <- true
 }
 
 // Sends block to all connected miners
@@ -542,7 +600,7 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
 
 	response.Error = NO_ERROR
 	response.Payload = make([]interface{}, 1)
-	response.Payload[0] = shape.ShapeSvgString
+	response.Payload[0] = `<path d="` + shape.Path + `" stroke="` + shape.Stroke + `" fill="` + shape.Fill + `"/>`
 	return nil
 }
 
@@ -562,12 +620,16 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	if _, exists := m.blockchain[blockHash]; !exists && isHashValid {
 		m.blockchain[blockHash] = &block
 		// compute longest chain
-		newChain := m.lengthLongestChain(blockHash)
-		oldChain := m.lengthLongestChain(m.longestChainLastBlockHash)
-		if newChain > oldChain {
-			m.longestChainLastBlockHash = blockHash
-			m.newLongestChain <- true
-		} // TODO: else, if equal, pick the largest hash = random
+		newChainLength := m.lengthLongestChain(blockHash)
+		oldChainLength := m.lengthLongestChain(m.longestChainLastBlockHash)
+        if newChainLength > oldChainLength {
+            if oldChainLength == 0 {
+                m.switchBranches(m.settings.GenesisBlockHash, blockHash)
+            } else {
+                m.switchBranches(m.longestChainLastBlockHash, blockHash)
+            }
+		}
+        // TODO: else, if equal, pick the largest hash = random
 		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners
@@ -589,7 +651,7 @@ func (m *Miner) GetBlockChain(request *MinerRequest, response *MinerResponse) er
 		return nil
 	}
 
-	longestChainLength := m.blockchain[m.longestChainLastBlockHash].BlockNo + 1
+	longestChainLength := m.blockchain[m.longestChainLastBlockHash].BlockNo
 	longestChain := make([]Block, longestChainLength)
 
 	var currhash = m.longestChainLastBlockHash
@@ -616,7 +678,7 @@ func (m *Miner) GetInk(request *ArtnodeRequest, response *MinerResponse) error {
 
 	response.Error = NO_ERROR
 	response.Payload = make([]interface{}, 1)
-	response.Payload[0] = m.inkRemaining
+	response.Payload[0] = m.inkAccounts[m.pubKeyString]
 
 	return nil
 }

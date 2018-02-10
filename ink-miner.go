@@ -115,7 +115,7 @@ type Miner struct {
 	serverConn                *rpc.Client
 	miners                    map[string]*rpc.Client
 	blockchain                map[string]*Block
-    blockChildren             map[string][]string
+	blockChildren             map[string][]string
 	longestChainLastBlockHash string
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
@@ -192,13 +192,13 @@ func (m *Miner) init() {
 	args := os.Args[1:]
 	m.serverAddr = args[0]
 	m.blockchain = make(map[string]*Block)
-    m.blockChildren = make(map[string][]string)
+	m.blockChildren = make(map[string][]string)
 	m.shapes = make(map[string]*Shape)
 	m.nonces = make(map[string]bool)
 	m.tokens = make(map[string]bool)
 	m.miners = make(map[string]*rpc.Client)
-    m.inkAccounts = make(map[string]uint32)
-    m.inkAccounts[m.pubKeyString] = 0
+	m.inkAccounts = make(map[string]uint32)
+	m.inkAccounts[m.pubKeyString] = 0
 	if len(args) <= 1 {
 		logger.Fatalln("Missing keys, please generate with: go run generateKeys.go")
 		// Can uncomment for lazy generate, just uncomment the bottom chunk
@@ -207,14 +207,14 @@ func (m *Miner) init() {
 		// m.pubKey = priv.PublicKey
 	}
 	// Proper Key Generate
-	privBytes, _ := hex.DecodeString(args[1])
+	privBytes, _ := hex.DecodeString(args[2])
 	//pubBytes, _ := hex.DecodeString(args[2])
 	privKey, err := x509.ParseECPrivateKey(privBytes)
 	if checkError(err) != nil {
 		log.Fatalln("Error with Private Key")
 	}
 
-	pubKey := m.decodeStringPubKey(args[2])
+	pubKey := m.decodeStringPubKey(args[1])
 	// pubKey, err := x509.ParsePKIXPublicKey(pubBytes)
 	// if checkError(err) != nil {
 	// 	log.Fatalln("Error with Public Key")
@@ -231,7 +231,7 @@ func (m *Miner) init() {
 
 	m.privKey = *privKey
 	m.pubKey = *pubKey
-	m.pubKeyString = args[2]
+	m.pubKeyString = args[1]
 	// End of Proper Key Generation
 
 	m.newLongestChain = make(chan bool)
@@ -258,9 +258,9 @@ func (m *Miner) listenRPC() {
 // Ink miner registers their address and public key to the server and starts sending heartbeats
 func (m *Miner) registerWithServer() {
 	serverConn, err := rpc.Dial("tcp", m.serverAddr)
-    if checkError(err) != nil {
-        log.Fatal("Server is not reachable")
-    }
+	if checkError(err) != nil {
+		log.Fatal("Server is not reachable")
+	}
 	settings := new(MinerNetSettings)
 	err = serverConn.Call("RServer.Register", &MinerInfo{m.localAddr, m.pubKey}, settings)
 	if checkError(err) != nil {
@@ -338,17 +338,17 @@ func (m *Miner) getLongestChain() {
 		currHash := longestBlockHash
 		for i := 0; i < len(longestBlockChain); i++ {
 			// Should be from Latest block to Earliest/Genesis
-            block := &longestBlockChain[i]
+			block := &longestBlockChain[i]
 			m.blockchain[currHash] = block
-            m.addBlockChild(block, currHash)
+			m.addBlockChild(block, currHash)
 			currHash = longestBlockChain[i].PrevHash
 		}
 		m.longestChainLastBlockHash = longestBlockHash
 		logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
 	}
 
-    // Create a dummy block as the genesis block
-    m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKeyString, 0}
+	// Create a dummy block as the genesis block
+	m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKeyString, 0}
 }
 
 // Creates a noOp block and block hash that has a suffix of nHashZeroes
@@ -381,7 +381,7 @@ func (m *Miner) mineNoOpBlock() {
 			if m.hashMatchesPOWDifficulty(blockHash) {
 				logger.Println("Found a new Block!: ", block, blockHash)
 				m.blockchain[blockHash] = block
-                m.addBlockChild(block, blockHash)
+				m.addBlockChild(block, blockHash)
 				logger.Println("Current BlockChainMap: ", m.blockchain)
 				m.longestChainLastBlockHash = blockHash
 				m.applyBlock(block)
@@ -413,49 +413,49 @@ func (m *Miner) applyBlock(block *Block) {
 	// update shapes and ink per operation
 	for _, record := range block.Records {
 		op := record.Op
-        if _, exists := m.inkAccounts[record.PubKeyString]; !exists {
-            m.inkAccounts[record.PubKeyString] = 0
-        }
+		if _, exists := m.inkAccounts[record.PubKeyString]; !exists {
+			m.inkAccounts[record.PubKeyString] = 0
+		}
 		if op.Type == ADD {
 			m.shapes[op.ShapeHash] = &op.Shape
-            m.inkAccounts[record.PubKeyString] -= op.InkCost
+			m.inkAccounts[record.PubKeyString] -= op.InkCost
 		} else {
 			delete(m.shapes, op.ShapeHash)
 			m.inkAccounts[record.PubKeyString] += op.InkCost
 		}
 	}
 
-    // add ink for the newly mined block
-    if _, exists := m.inkAccounts[block.PubKeyString]; !exists {
-        m.inkAccounts[block.PubKeyString] = 0
-    }
-    if len(block.Records) == 0 {
-        m.inkAccounts[block.PubKeyString] += m.settings.InkPerNoOpBlock
-    } else {
-        m.inkAccounts[block.PubKeyString] += m.settings.InkPerOpBlock
-    }
+	// add ink for the newly mined block
+	if _, exists := m.inkAccounts[block.PubKeyString]; !exists {
+		m.inkAccounts[block.PubKeyString] = 0
+	}
+	if len(block.Records) == 0 {
+		m.inkAccounts[block.PubKeyString] += m.settings.InkPerNoOpBlock
+	} else {
+		m.inkAccounts[block.PubKeyString] += m.settings.InkPerOpBlock
+	}
 }
 
 // Reverses applyBlock(), for rolling back during a branch switch.
 //
 func (m *Miner) revertBlock(block *Block) {
-    for _, record := range block.Records {
-        op := record.Op
-        if op.Type == REMOVE {
-            m.shapes[op.ShapeHash] = &op.Shape
-            m.inkAccounts[record.PubKeyString] -= op.InkCost
-        } else {
-            delete(m.shapes, op.ShapeHash)
-            m.inkAccounts[record.PubKeyString] += op.InkCost
-        }
-    }
+	for _, record := range block.Records {
+		op := record.Op
+		if op.Type == REMOVE {
+			m.shapes[op.ShapeHash] = &op.Shape
+			m.inkAccounts[record.PubKeyString] -= op.InkCost
+		} else {
+			delete(m.shapes, op.ShapeHash)
+			m.inkAccounts[record.PubKeyString] += op.InkCost
+		}
+	}
 
-    // add ink for the newly mined block
-    if len(block.Records) == 0 {
-        m.inkAccounts[block.PubKeyString] -= m.settings.InkPerNoOpBlock
-    } else {
-        m.inkAccounts[block.PubKeyString] -= m.settings.InkPerOpBlock
-    }
+	// add ink for the newly mined block
+	if len(block.Records) == 0 {
+		m.inkAccounts[block.PubKeyString] -= m.settings.InkPerNoOpBlock
+	} else {
+		m.inkAccounts[block.PubKeyString] -= m.settings.InkPerOpBlock
+	}
 }
 
 // Manages miner state updates during a branch switch:
@@ -478,46 +478,46 @@ func (m *Miner) revertBlock(block *Block) {
 // are race conditions waiting to happen...
 //
 func (m *Miner) switchBranches(oldBlockHash, newBlockHash string) {
-    // newBlock and oldBlock are "current" block pointers in the new and
-    // old blockchain, respectively, as we traverse backwards
-    newBlock := m.blockchain[newBlockHash]
-    oldBlock := m.blockchain[oldBlockHash]
+	// newBlock and oldBlock are "current" block pointers in the new and
+	// old blockchain, respectively, as we traverse backwards
+	newBlock := m.blockchain[newBlockHash]
+	oldBlock := m.blockchain[oldBlockHash]
 
-    for newBlock.BlockNo > oldBlock.BlockNo {
-        m.applyBlock(newBlock)
-        prevHash := newBlock.PrevHash
-        if prevHash == oldBlockHash {
-            // In the case of a fast-forward, the previous hash of the new
-            // block will eventually be equal to the hash of the old blockchain
-            // head. When it reaches that point, we can return, as we are done
-            // applying all necessary state updates in the new chain.
-            m.longestChainLastBlockHash = newBlockHash
-            m.newLongestChain <- true
-            return
-        }
+	for newBlock.BlockNo > oldBlock.BlockNo {
+		m.applyBlock(newBlock)
+		prevHash := newBlock.PrevHash
+		if prevHash == oldBlockHash {
+			// In the case of a fast-forward, the previous hash of the new
+			// block will eventually be equal to the hash of the old blockchain
+			// head. When it reaches that point, we can return, as we are done
+			// applying all necessary state updates in the new chain.
+			m.longestChainLastBlockHash = newBlockHash
+			m.newLongestChain <- true
+			return
+		}
 
-        newBlock = m.blockchain[prevHash]
-    }
+		newBlock = m.blockchain[prevHash]
+	}
 
-    // If we reach this point, that means the block number of the new block is
-    // equal to the block number of the old block, but their block hashes are
-    // not equal. Therefore, they are on separate branches (of what are now equal
-    // length), so we can now make both block pointers move backwards, adjusting
-    // the miner state along the way, until their previous hashes are equal. The
-    // fact that the loop guard comes at the end accounts for the last traversal
-    // step, as well as the edge case where both branches are only of length 1.
-    for {
-        m.applyBlock(newBlock)
-        m.revertBlock(oldBlock)
-        newBlock = m.blockchain[newBlock.PrevHash]
-        oldBlock = m.blockchain[oldBlock.PrevHash]
-        if newBlock.PrevHash == oldBlock.PrevHash {
-            break
-        }
-    }
+	// If we reach this point, that means the block number of the new block is
+	// equal to the block number of the old block, but their block hashes are
+	// not equal. Therefore, they are on separate branches (of what are now equal
+	// length), so we can now make both block pointers move backwards, adjusting
+	// the miner state along the way, until their previous hashes are equal. The
+	// fact that the loop guard comes at the end accounts for the last traversal
+	// step, as well as the edge case where both branches are only of length 1.
+	for {
+		m.applyBlock(newBlock)
+		m.revertBlock(oldBlock)
+		newBlock = m.blockchain[newBlock.PrevHash]
+		oldBlock = m.blockchain[oldBlock.PrevHash]
+		if newBlock.PrevHash == oldBlock.PrevHash {
+			break
+		}
+	}
 
-    m.longestChainLastBlockHash = newBlockHash
-    m.newLongestChain <- true
+	m.longestChainLastBlockHash = newBlockHash
+	m.newLongestChain <- true
 }
 
 // Sends block to all connected miners
@@ -543,12 +543,12 @@ func (m *Miner) disseminateToConnectedMiners(block Block, blockHash string) {
 // Adds a block's hash to its parent's list of child hashes.
 //
 func (m *Miner) addBlockChild(block *Block, hash string) {
-    if _, exists := m.blockChildren[block.PrevHash]; !exists {
-        m.blockChildren[block.PrevHash] = []string{hash}
-    } else {
-        children := m.blockChildren[block.PrevHash]
-        m.blockChildren[block.PrevHash] = append(children, hash)
-    }
+	if _, exists := m.blockChildren[block.PrevHash]; !exists {
+		m.blockChildren[block.PrevHash] = []string{hash}
+	} else {
+		children := m.blockChildren[block.PrevHash]
+		m.blockChildren[block.PrevHash] = append(children, hash)
+	}
 }
 
 // </PRIVATE METHODS : MINER>
@@ -635,18 +635,18 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	// If new block, disseminate
 	if _, exists := m.blockchain[blockHash]; !exists && isHashValid {
 		m.blockchain[blockHash] = &block
-        m.addBlockChild(&block, blockHash)
+		m.addBlockChild(&block, blockHash)
 		// compute longest chain
 		newChainLength := m.lengthLongestChain(blockHash)
 		oldChainLength := m.lengthLongestChain(m.longestChainLastBlockHash)
-        if newChainLength > oldChainLength {
-            if oldChainLength == 0 {
-                m.switchBranches(m.settings.GenesisBlockHash, blockHash)
-            } else {
-                m.switchBranches(m.longestChainLastBlockHash, blockHash)
-            }
+		if newChainLength > oldChainLength {
+			if oldChainLength == 0 {
+				m.switchBranches(m.settings.GenesisBlockHash, blockHash)
+			} else {
+				m.switchBranches(m.longestChainLastBlockHash, blockHash)
+			}
 		}
-        // TODO: else, if equal, pick the largest hash = random
+		// TODO: else, if equal, pick the largest hash = random
 		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners
@@ -738,63 +738,63 @@ func (m *Miner) GetShapes(request *ArtnodeRequest, response *MinerResponse) erro
 	for i, record := range block.Records {
 		shapeHashes[i] = record.Op.ShapeHash
 	}
-    response.Payload[0] = shapeHashes
+	response.Payload[0] = shapeHashes
 
 	return nil
 }
 
 // Get a list of block hashes which are children of a given block
 func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) error {
-    token := request.Token
-    _, validToken := m.tokens[token]
-    if !validToken {
-        response.Error = INVALID_TOKEN
-        return nil
-    }
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = INVALID_TOKEN
+		return nil
+	}
 
-    hash := request.Payload[0].(string)
-    children, exists := m.blockChildren[hash]
-    if !exists {
-        response.Error = INVALID_BLOCK_HASH
-        return nil
-    }
+	hash := request.Payload[0].(string)
+	children, exists := m.blockChildren[hash]
+	if !exists {
+		response.Error = INVALID_BLOCK_HASH
+		return nil
+	}
 
-    response.Error = NO_ERROR
-    response.Payload = make([]interface{}, 1)
-    response.Payload[0] = children
+	response.Error = NO_ERROR
+	response.Payload = make([]interface{}, 1)
+	response.Payload[0] = children
 
-    return nil
+	return nil
 }
 
 func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) error {
-    token := request.Token
-    _, validToken := m.tokens[token]
-    if !validToken {
-        response.Error = INVALID_TOKEN
-        return nil
-    }
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = INVALID_TOKEN
+		return nil
+	}
 
-    validateNum := request.Payload[0].(uint8)
-    shapeType := request.Payload[1].(ShapeType)
-    shapeSvgString := request.Payload[2].(string)
-    fill := request.Payload[3].(string)
-    stroke := request.Payload[4].(string)
+	validateNum := request.Payload[0].(uint8)
+	shapeType := request.Payload[1].(ShapeType)
+	shapeSvgString := request.Payload[2].(string)
+	fill := request.Payload[3].(string)
+	stroke := request.Payload[4].(string)
 
-    // TODO: Perform validation
-    fmt.Println(validateNum)
-    fmt.Println(shapeType)
-    fmt.Println(shapeSvgString)
-    fmt.Println(fill)
-    fmt.Println(stroke)
+	// TODO: Perform validation
+	fmt.Println(validateNum)
+	fmt.Println(shapeType)
+	fmt.Println(shapeSvgString)
+	fmt.Println(fill)
+	fmt.Println(stroke)
 
-    // TODO: Add payload
-    response.Error = NO_ERROR
-    response.Payload = make([]interface{}, 3)
-    response.Payload[0] = ""
-    response.Payload[1] = ""
-    response.Payload[2] = 0
+	// TODO: Add payload
+	response.Error = NO_ERROR
+	response.Payload = make([]interface{}, 3)
+	response.Payload[0] = ""
+	response.Payload[1] = ""
+	response.Payload[2] = 0
 
-    return nil
+	return nil
 }
 
 // </RPC METHODS>

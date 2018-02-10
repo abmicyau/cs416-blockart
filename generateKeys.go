@@ -23,11 +23,11 @@ func main() {
 	encodedPrivateBytes := hex.EncodeToString(privateKeyBytes)
 	encodedPublicBytes := hex.EncodeToString(publicKeyBytes)
 
-	fmt.Println("Encoded Private key: ", encodedPrivateBytes)
 	fmt.Println("Encoded Public key: ", encodedPublicBytes)
+	fmt.Println("Encoded Private key: ", encodedPrivateBytes)
 
 	file, _ := ioutil.TempFile(".", "encodedKeys")
 	defer file.Close()
-	file.WriteString(encodedPrivateBytes + "\r\n" + encodedPublicBytes)
+	file.WriteString(encodedPublicBytes + "\r\n" + encodedPrivateBytes)
 
 }

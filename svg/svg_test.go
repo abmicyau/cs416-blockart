@@ -32,16 +32,16 @@ func TestGetCommands(t *testing.T) {
 		svgCommand := commands[i]
 		commandExpected := commandsExpected[i]
 
-		if svgCommand.cmdType != commandExpected.cmdType {
-			t.Error("Expected "+commandExpected.cmdType+", got ", svgCommand.cmdType)
+		if svgCommand.CmdType != commandExpected.CmdType {
+			t.Error("Expected "+commandExpected.CmdType+", got ", svgCommand.CmdType)
 		}
 
-		if svgCommand.x != commandExpected.x {
-			t.Error("Expected "+strconv.Itoa(int(commandExpected.x))+", got ", strconv.Itoa(int(svgCommand.x)))
+		if svgCommand.X != commandExpected.X {
+			t.Error("Expected "+strconv.Itoa(int(commandExpected.X))+", got ", strconv.Itoa(int(svgCommand.X)))
 		}
 
-		if svgCommand.y != commandExpected.y {
-			t.Error("Expected "+strconv.Itoa(int(commandExpected.y))+", got ", strconv.Itoa(int(svgCommand.y)))
+		if svgCommand.Y != commandExpected.Y {
+			t.Error("Expected "+strconv.Itoa(int(commandExpected.Y))+", got ", strconv.Itoa(int(svgCommand.Y)))
 		}
 	}
 }
@@ -61,12 +61,12 @@ func TestGetVertices(t *testing.T) {
 		vertex := vertices[i]
 		vertexExpected := verticesExpected[i]
 
-		if vertex.x != vertexExpected.x {
-			t.Error("Expected "+strconv.Itoa(int(vertexExpected.x))+", got ", strconv.Itoa(int(vertex.x)))
+		if vertex.X != vertexExpected.X {
+			t.Error("Expected "+strconv.Itoa(int(vertexExpected.X))+", got ", strconv.Itoa(int(vertex.X)))
 		}
 
-		if vertex.y != vertexExpected.y {
-			t.Error("Expected "+strconv.Itoa(int(vertexExpected.y))+", got ", strconv.Itoa(int(vertex.y)))
+		if vertex.Y != vertexExpected.Y {
+			t.Error("Expected "+strconv.Itoa(int(vertexExpected.Y))+", got ", strconv.Itoa(int(vertex.Y)))
 		}
 	}
 }

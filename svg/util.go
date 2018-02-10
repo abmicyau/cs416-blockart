@@ -55,16 +55,16 @@ type Shape struct {
 // Represents a command with type(M, H, L, m, h, l, etc.)
 // and specified (x, y) coordinate
 type Command struct {
-	cmdType string
+	CmdType string
 
-	x int64
-	y int64
+	X int64
+	Y int64
 }
 
 // Represents a point with (x, y) coordinate
 type Point struct {
-	x int64
-	y int64
+	X int64
+	Y int64
 }
 
 // Computes the ink required for the given shape according
@@ -131,52 +131,52 @@ func (s *Shape) evaluateSvgString() (err error) {
     for i := range s.Commands {
         _command := s.Commands[i]
 
-        switch _command.cmdType {
+        switch _command.CmdType {
         case "M":
-            absPos.x, absPos.y = _command.x, _command.y
-            relPos.x, relPos.y = _command.x, _command.y
+            absPos.X, absPos.Y = _command.X, _command.Y
+            relPos.X, relPos.Y = _command.X, _command.Y
 
-            vertices[i] = Point{relPos.x, relPos.y}
+            vertices[i] = Point{relPos.X, relPos.Y}
         case "H":
-            relPos.x = _command.x
+            relPos.X = _command.X
 
-            vertices[i] = Point{relPos.x, absPos.y}
+            vertices[i] = Point{relPos.X, absPos.Y}
         case "V":
-            relPos.y = _command.y
+            relPos.Y = _command.Y
 
-            vertices[i] = Point{absPos.x, relPos.y}
+            vertices[i] = Point{absPos.X, relPos.Y}
         case "L":
-            relPos.x, relPos.y = _command.x, _command.y
+            relPos.X, relPos.Y = _command.X, _command.Y
 
-            vertices[i] = Point{relPos.x, relPos.y}
+            vertices[i] = Point{relPos.X, relPos.Y}
         case "h":
-            relPos.x = relPos.x + _command.x
+            relPos.X = relPos.X + _command.X
 
-            vertices[i] = Point{relPos.x, relPos.y}
+            vertices[i] = Point{relPos.X, relPos.Y}
         case "v":
-            relPos.y = relPos.y + _command.y
+            relPos.Y = relPos.Y + _command.Y
 
-            vertices[i] = Point{relPos.x, relPos.y}
+            vertices[i] = Point{relPos.X, relPos.Y}
         case "l":
-            relPos.x, relPos.y = relPos.x+_command.x, relPos.y+_command.y
+            relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
 
-            vertices[i] = Point{relPos.x, relPos.y}
+            vertices[i] = Point{relPos.X, relPos.Y}
         }
 
         if i == 0 {
             s.Min = relPos
             s.Max = relPos
         } else {
-            if relPos.x < s.Min.x {
-                s.Min.x = relPos.x
-            } else if relPos.x > s.Max.x {
-                s.Max.x = relPos.x
+            if relPos.X < s.Min.X {
+                s.Min.X = relPos.X
+            } else if relPos.X > s.Max.X {
+                s.Max.X = relPos.X
             }
 
-            if relPos.y < s.Min.y {
-                s.Min.y = relPos.y
-            } else if relPos.y > s.Max.y {
-                s.Max.y = relPos.y
+            if relPos.Y < s.Min.Y {
+                s.Min.Y = relPos.Y
+            } else if relPos.Y > s.Max.Y {
+                s.Max.Y = relPos.Y
             }
         }
     }
@@ -190,7 +190,7 @@ func (s *Shape) evaluateSvgString() (err error) {
 // Determines if a proposed shape overlape this shape.
 func (s *Shape) hasOverlap(_s Shape) bool {
     // Easy preliminary: does the bounding box of _s encompass s
-    if _s.Fill != "transparent" && (_s.Min.x <= s.Min.x && _s.Min.y <= s.Min.y) && (_s.Max.x >= s.Max.x && _s.Max.y >= s.Max.y) {
+    if _s.Fill != "transparent" && (_s.Min.X <= s.Min.X && _s.Min.Y <= s.Min.Y) && (_s.Max.X >= s.Max.X && _s.Max.Y >= s.Max.Y) {
         return true
     }
 
@@ -204,7 +204,7 @@ func (s *Shape) hasOverlap(_s Shape) bool {
 }
 
 func (p Point) inBound(xMax uint32, yMax uint32) bool {
-	return p.x > 0 && p.y > 0 && p.x < int64(xMax) && p.y < int64(yMax)
+	return p.X > 0 && p.Y > 0 && p.X < int64(xMax) && p.Y < int64(yMax)
 }
 
 // Represents a line segment with start and end points
@@ -224,7 +224,7 @@ func (l LineSegment) length() uint64 {
 	if l.start == l.end {
 		return 1
 	} else {
-		a, b := float64(l.start.x-l.end.x), float64(l.start.y-l.end.y)
+		a, b := float64(l.start.X-l.end.X), float64(l.start.Y-l.end.Y)
 		c := math.Sqrt(math.Pow(a, 2) + math.Pow(b, 2))
 
 		return uint64(math.Ceil(c))
@@ -233,10 +233,10 @@ func (l LineSegment) length() uint64 {
 
 // Determines if a point lies on a line segment
 func (l LineSegment) hasPoint(p Point) bool {
-	x1, y1, x2, y2 := l.start.x, l.start.y, l.end.x, l.end.y
+	x1, y1, x2, y2 := l.start.X, l.start.Y, l.end.X, l.end.Y
 
-	return ((y1 <= p.y && p.y <= y2) || (y1 >= p.y && p.y >= y2)) &&
-		((x1 <= p.x && p.x <= x2) || (x1 >= p.x && p.x >= x2))
+	return ((y1 <= p.Y && p.Y <= y2) || (y1 >= p.Y && p.Y >= y2)) &&
+		((x1 <= p.X && p.X <= x2) || (x1 >= p.X && p.X >= x2))
 }
 
 // Determines if two line segments are parallel
@@ -344,63 +344,63 @@ func getCommands(svg string) (commands []Command, err error) {
 		cmdType := string(cmdString[0])
 		switch cmdType {
 		case "M":
-			_command.cmdType = "M"
+			_command.CmdType = "M"
 
 			if len(pos) < 2 || posEmpty {
 				return nil, InvalidShapeSvgStringError(svg)
 			} else {
-				_command.x, _ = strconv.ParseInt(pos[0], 10, 64)
-				_command.y, _ = strconv.ParseInt(pos[1], 10, 64)
+				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 			}
 		case "H":
-			_command.cmdType = "H"
+			_command.CmdType = "H"
 
 			if posEmpty {
 				return nil, InvalidShapeSvgStringError(svg)
 			} else {
-				_command.x, _ = strconv.ParseInt(pos[0], 10, 64)
+				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "V":
-			_command.cmdType = "V"
+			_command.CmdType = "V"
 
 			if posEmpty {
 				return nil, InvalidShapeSvgStringError(svg)
 			} else {
-				_command.y, _ = strconv.ParseInt(pos[0], 10, 64)
+				_command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "L":
-			_command.cmdType = "L"
+			_command.CmdType = "L"
 
 			if len(pos) < 2 || posEmpty {
 				return nil, InvalidShapeSvgStringError(svg)
 			} else {
-				_command.x, _ = strconv.ParseInt(pos[0], 10, 64)
-				_command.y, _ = strconv.ParseInt(pos[1], 10, 64)
+				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 			}
 		case "h":
-			_command.cmdType = "h"
+			_command.CmdType = "h"
 
 			if posEmpty {
 				return nil, InvalidShapeSvgStringError(svg)
 			} else {
-				_command.x, _ = strconv.ParseInt(pos[0], 10, 64)
+				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "v":
-			_command.cmdType = "v"
+			_command.CmdType = "v"
 
 			if posEmpty {
 				return nil, InvalidShapeSvgStringError(svg)
 			} else {
-				_command.y, _ = strconv.ParseInt(pos[0], 10, 64)
+				_command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "l":
-			_command.cmdType = "l"
+			_command.CmdType = "l"
 
 			if len(pos) < 2 || posEmpty {
 				return nil, InvalidShapeSvgStringError(svg)
 			} else {
-				_command.x, _ = strconv.ParseInt(pos[0], 10, 64)
-				_command.y, _ = strconv.ParseInt(pos[1], 10, 64)
+				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 			}
 		}
 
@@ -408,7 +408,7 @@ func getCommands(svg string) (commands []Command, err error) {
 			break
 		}
 
-		if _command.cmdType != "" {
+		if _command.CmdType != "" {
 			_commands = append(_commands, _command)
 		}
 
@@ -429,7 +429,7 @@ func getCommands(svg string) (commands []Command, err error) {
 // Determines if the given vertex exists in a set of vertices
 func vertexExists(v Point, vertices []Point) bool {
 	for _, vertex := range vertices {
-		if v.x == vertex.x && v.y == vertex.y {
+		if v.X == vertex.X && v.Y == vertex.Y {
 			return true
 		}
 	}
@@ -455,9 +455,9 @@ func getLineSegment(v1 Point, v2 Point) (lineSegment LineSegment) {
 	lineSegment.start = v1
 	lineSegment.end = v2
 
-	lineSegment.a = v2.y - v1.y
-	lineSegment.b = v1.x - v2.x
-	lineSegment.c = lineSegment.a*v1.x + lineSegment.b*v1.y
+	lineSegment.a = v2.Y - v1.Y
+	lineSegment.b = v1.X - v2.X
+	lineSegment.c = lineSegment.a*v1.X + lineSegment.b*v1.Y
 
 	return
 }
@@ -494,7 +494,7 @@ func hasOddConfiguration(polyIntersects []Point, vertexIntersects []Point) bool 
 		var rightIntersects uint32
 
 		for _, p := range polyIntersects {
-			if p.x < v.x {
+			if p.X < v.X {
 				leftIntersects++
 			} else {
 				rightIntersects++
@@ -526,9 +526,9 @@ func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
 		lineSegment.start = v1
 		lineSegment.end = v2
 
-		lineSegment.a = v2.y - v1.y
-		lineSegment.b = v1.x - v2.x
-		lineSegment.c = lineSegment.a*v1.x + lineSegment.b*v1.y
+		lineSegment.a = v2.Y - v1.Y
+		lineSegment.b = v1.X - v2.X
+		lineSegment.c = lineSegment.a*v1.X + lineSegment.b*v1.Y
 
 		lineSegments = append(lineSegments, lineSegment)
 	}
@@ -538,11 +538,11 @@ func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
 
 // Determines if any of the vertices are contained with a polygon, using a scanline.
 func containsVertex(min Point, max Point, lineSegments []LineSegment, vertices []Point) bool {
-	for y := min.y; y <= max.y; y++ {
+	for y := min.Y; y <= max.Y; y++ {
 		var polyIntersects []Point
 		var vertexIntersects []Point
 
-		scanLine := getLineSegment(Point{min.x, y}, Point{max.x, y})
+		scanLine := getLineSegment(Point{min.X, y}, Point{max.X, y})
 
 		// Get all polygon intersects on this scanline
 		for _, l := range lineSegments {
@@ -599,7 +599,7 @@ func computeGeoArea(vertices []Point) uint64 {
 			v2 = vertices[i+1]
 		}
 
-		area = area + (v1.x*v2.y - v2.x*v1.y)
+		area = area + (v1.X*v2.Y - v2.X*v1.Y)
 	}
 
 	return uint64(area / 2)
@@ -610,10 +610,10 @@ func computeGeoArea(vertices []Point) uint64 {
 // NOTE: This computes the actual number of pixels required to draw shape
 // Doesn't exlude the actual line segments
 func computePixelArea(min Point, max Point, lineSegments []LineSegment) (area uint64) {
-	for y := min.y; y <= max.y; y++ {
+	for y := min.Y; y <= max.Y; y++ {
 		var intersects []Point
 
-		scanLine := getLineSegment(Point{min.x, y}, Point{max.x, y})
+		scanLine := getLineSegment(Point{min.X, y}, Point{max.X, y})
 
 		// Check intersections with all line segments
 		for _, l := range lineSegments {

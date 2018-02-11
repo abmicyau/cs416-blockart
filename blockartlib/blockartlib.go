@@ -8,8 +8,8 @@ library (blockartlib) to be used in project 1 of UBC CS 416 2017W2.
 package blockartlib
 
 import (
-	"fmt"
 	"crypto/ecdsa"
+	"fmt"
 	"crypto/rand"
 	"net/rpc"
 	"os"
@@ -17,6 +17,7 @@ import (
 
 // Represents a type of shape in the BlockArt system.
 type ShapeType int
+
 const (
 	// Path shape.
 	PATH ShapeType = iota
@@ -291,7 +292,34 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 // - ShapeOverlapError
 // - OutOfBoundsError
 func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSvgString string, fill string, stroke string) (shapeHash string, blockHash string, inkRemaining uint32, err error) {
-	// TODO
+	request := new(ArtnodeRequest)
+	request.Token = c.Token
+	request.Payload = make([]interface{}, 5)
+	request.Payload[0] = validateNum
+	request.Payload[1] = shapeType
+	request.Payload[2] = shapeSvgString
+	request.Payload[3] = fill
+	request.Payload[4] = stroke
+	response := new(MinerResponse)
+
+	err = c.Miner.Call("Miner.AddShape", request, response)
+
+	if checkError(err) != nil || response.Error == INVALID_TOKEN {
+		return shapeHash, blockHash, inkRemaining, DisconnectedError(c.MinerAddr)
+	} else if false {
+		// TODO: Handle all types of errors
+		// - InsufficientInkError
+		// - InvalidShapeSvgStringError
+		// - ShapeSvgStringTooLongError
+		// - ShapeOverlapError
+		// - OutOfBoundsError
+		// See MinerResponseError for details
+	}
+
+	shapeHash = response.Payload[0].(string)
+	blockHash = response.Payload[1].(string)
+	inkRemaining = response.Payload[0].(uint32)
+
 	return shapeHash, blockHash, inkRemaining, nil
 }
 
@@ -407,8 +435,22 @@ func (c CanvasInstance) GetGenesisBlock() (blockHash string, err error) {
 // - DisconnectedError
 // - InvalidBlockHashError
 func (c CanvasInstance) GetChildren(blockHash string) (blockHashes []string, err error) {
-	// TODO
-	return make([]string, 0), nil
+	request := new(ArtnodeRequest)
+	request.Token = c.Token
+	request.Payload = make([]interface{}, 1)
+	request.Payload[0] = blockHash
+	response := new(MinerResponse)
+
+	err = c.Miner.Call("Miner.GetChildren", request, response)
+	if checkError(err) != nil || response.Error == INVALID_TOKEN {
+		return []string{}, DisconnectedError(c.MinerAddr)
+	} else if response.Error == INVALID_BLOCK_HASH {
+		return []string{}, InvalidBlockHashError(blockHash)
+	}
+
+	blockHashes = response.Payload[0].([]string)
+
+	return blockHashes, nil
 }
 
 // Closes the canvas/connection to the BlockArt network.
@@ -431,6 +473,28 @@ func checkError(err error) error {
 	}
 	return nil
 }
+
+// // Determines if the proposed shape overlaps a shape on the canvas
+// // not belonging to the proposed shapes' owner.
+// func (c CanvasInstance) hasOverlappingShape(shape Shape) (overlap bool) {
+// 	for _, _shape := range c.shapes { // For every shape on the canvas
+// 		// Skip if owner is the same
+// 		if _shape.owner == shape.owner {
+// 			continue
+// 		}
+
+// 		// Check for an overlap
+// 		if overlap = _shape.hasOverlap(shape); overlap {
+// 			break
+// 		}
+// 	}
+
+// 	return
+// }
+
+// func (s Shape) hash() string {
+// 	return ""
+// }
 
 // </PRIVATE METHODS>
 ////////////////////////////////////////////////////////////////////////////////////////////

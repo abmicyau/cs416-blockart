@@ -551,6 +551,34 @@ func (m *Miner) addBlockChild(block *Block, hash string) {
 	}
 }
 
+func (m *Miner) validateNewShape(s shapelib.Shape) (err error) {
+	if s.Stroke == "" {
+		return shapelib.InvalidShapeFillStrokeError("Shape stroke must be specified")
+	} else if s.Fill == "" {
+		return shapelib.InvalidShapeFillStrokeError("Shape fill must be specified")
+	} else if s.Stroke == "transparent" || s.Fill == "transparent" {
+		return shapelib.InvalidShapeFillStrokeError("Both fill and stroke cannot be transparent")
+	}
+
+	canvasSettings := m.settings.CanvasSettings
+	_, geo, err := s.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax)
+	if err != nil {
+		return err
+	} else if uint32(geo.GetInkCost()) > m.inkAccounts[m.pubKeyString] {
+		return shapelib.InsufficientInkError(m.inkAccounts[m.pubKeyString])
+	} else {
+		for _sHash, _s := range m.shapes {
+			if _s.Owner == s.Owner {
+				continue
+			} else if _geo, _ := _s.GetGeometry(); _geo.HasOverlap(geo) {
+				return shapelib.ShapeOverlapError(_sHash)
+			}
+		}
+	}
+
+	return
+}
+
 // </PRIVATE METHODS : MINER>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -780,14 +808,6 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 	fill := strings.Trim(request.Payload[3].(string), " ")
 	stroke := strings.Trim(request.Payload[4].(string), " ")
 
-	if stroke == "" {
-		return shapelib.InvalidShapeFillStrokeError("Shape stroke must be specified")
-	} else if fill == "" {
-		return shapelib.InvalidShapeFillStrokeError("Shape fill must be specified")
-	} else if stroke == "transparent" || fill == "transparent" {
-		return shapelib.InvalidShapeFillStrokeError("Both fill and stroke cannot be transparent")
-	}
-
 	shape := shapelib.Shape{
 		ShapeType:      shapeType,
 		ShapeSvgString: shapeSvgString,
@@ -795,20 +815,16 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		Stroke:         stroke,
 		Owner:          m.pubKeyString}
 
-	canvasSettings := m.settings.CanvasSettings
-	_, geometry, _err := shape.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax)
-	if _err != nil {
-		return _err
-	} else if uint32(geometry.GetInkCost()) > m.inkAccounts[m.pubKeyString] {
-		return shapelib.InsufficientInkError(m.inkAccounts[m.pubKeyString])
-	} else {
-		for _shapeHash, _shape := range m.shapes {
-			if _shape.Owner == shape.Owner {
-				continue
-			} else if _geometry, _ := _shape.GetGeometry(); _geometry.HasOverlap(geometry) {
-				return shapelib.ShapeOverlapError(_shapeHash)
-			}
-		}
+	err = m.validateNewShape(shape)
+	if err != nil {
+		// TODO
+		// response.Error = ERROR
+		// response.Payload = make([]interface{}, 3)
+		// response.Payload[0] = ""
+		// response.Payload[1] = ""
+		// response.Payload[2] = 0
+
+		return err
 	}
 
 	// TODO: Perform validation

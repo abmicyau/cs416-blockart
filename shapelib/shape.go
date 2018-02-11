@@ -138,6 +138,10 @@ func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 			relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
 
 			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+		case "Z":
+			geometry.Vertices[i] = geometry.Vertices[0]
+		case "z":
+			geometry.Vertices[i] = geometry.Vertices[0]
 		}
 
 		if i == 0 {
@@ -156,6 +160,12 @@ func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 				geometry.Max.Y = relPos.Y
 			}
 		}
+	}
+
+	// Make sure its closed
+	if s.Fill != "transparent" && geometry.Vertices[0] != geometry.Vertices[len(geometry.Vertices)-1] {
+		err = InvalidShapeSvgStringError(s.ShapeSvgString)
+		return
 	}
 
 	geometry.LineSegments = getLineSegments(geometry.Vertices)
@@ -542,16 +552,12 @@ func hasOddConfiguration(polyIntersects []Point, vertexIntersects []Point) bool 
 // Extracts line segments (in order) from provided vertices,
 // where each vertex is connected to the next vertex
 func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
-	for i := range vertices {
+	for i := 0; i < len(vertices)-2; i++ {
 		var v1, v2 Point
 		var lineSegment LineSegment
 
 		v1 = vertices[i]
-		if i == len(vertices)-1 {
-			v2 = vertices[0]
-		} else {
-			v2 = vertices[i+1]
-		}
+		v2 = vertices[i+1]
 
 		lineSegment.Start = v1
 		lineSegment.End = v2

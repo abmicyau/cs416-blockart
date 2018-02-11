@@ -304,7 +304,7 @@ func (m *Miner) decodeStringPubKey(pubkey string) *ecdsa.PublicKey {
 func (m *Miner) getMiners() {
 	var addrSet []net.Addr
 	for minerAddr, minerCon := range m.miners {
-		var isConnected bool
+		isConnected := false
 		minerCon.Call("Miner.PingMiner", "", &isConnected)
 		if !isConnected {
 			delete(m.miners, minerAddr)
@@ -322,8 +322,11 @@ func (m *Miner) connectToMiners(addrs []net.Addr) {
 	for _, minerAddr := range addrs {
 		if m.miners[minerAddr.String()] == nil {
 			minerConn, err := rpc.Dial("tcp", minerAddr.String())
-			checkError(err)
-			m.miners[minerAddr.String()] = minerConn
+			if err != nil {
+				delete(m.miners, minerAddr.String())
+			} else {
+				m.miners[minerAddr.String()] = minerConn
+			}
 		}
 	}
 }
@@ -537,7 +540,7 @@ func (m *Miner) disseminateToConnectedMiners(block Block, blockHash string) {
 	request.Payload[1] = blockHash
 	response := new(MinerResponse)
 	for minerAddr, minerCon := range m.miners {
-		var isConnected bool
+		isConnected := false
 		minerCon.Call("Miner.PingMiner", "", &isConnected)
 		if isConnected {
 			minerCon.Call("Miner.SendBlock", request, response)
@@ -572,7 +575,7 @@ func (m *Miner) disseminateOpToConnectedMiners(opRec OperationRecord) {
 	request.Payload[0] = opRec
 	response := new(MinerResponse)
 	for minerAddr, minerCon := range m.miners {
-		var isConnected bool
+		isConnected := false
 		minerCon.Call("Miner.PingMiner", "", &isConnected)
 		if isConnected {
 			minerCon.Call("Miner.SendOp", request, response)

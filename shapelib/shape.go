@@ -29,6 +29,13 @@ func (e InvalidShapeSvgStringError) Error() string {
 	return fmt.Sprintf("BlockArt: Bad shape svg string [%s]", string(e))
 }
 
+// Contains details
+type InvalidShapeFillStrokeError string
+
+func (e InvalidShapeFillStrokeError) Error() string {
+	return fmt.Sprintf("BlockArt: ", string(e))
+}
+
 // Contains amount of ink remaining.
 type InsufficientInkError uint32
 

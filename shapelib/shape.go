@@ -1,4 +1,4 @@
-package svg
+package shapelib
 
 import (
 	"errors"
@@ -27,6 +27,20 @@ type InvalidShapeSvgStringError string
 
 func (e InvalidShapeSvgStringError) Error() string {
 	return fmt.Sprintf("BlockArt: Bad shape svg string [%s]", string(e))
+}
+
+// Contains amount of ink remaining.
+type InsufficientInkError uint32
+
+func (e InsufficientInkError) Error() string {
+	return fmt.Sprintf("BlockArt: Not enough ink to addShape [%d]", uint32(e))
+}
+
+// Contains the hash of the shape that this shape overlaps with.
+type ShapeOverlapError string
+
+func (e ShapeOverlapError) Error() string {
+	return fmt.Sprintf("BlockArt: Shape overlaps with a previously added shape [%s]", string(e))
 }
 
 // Represents a type of shape in the BlockArt system.

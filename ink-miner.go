@@ -8,8 +8,6 @@ go run ink-miner.go [server ip:port] [pubKey] [privKey]
 
 package main
 
-import . "./svg"
-
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -27,6 +25,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"./shapelib"
 )
 
 //
@@ -120,7 +120,7 @@ type Miner struct {
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
 	pubKeyString              string
-	shapes                    map[string]*Shape
+	shapes                    map[string]*shapelib.Shape
 	inkAccounts               map[string]uint32
 	settings                  *MinerNetSettings
 	nonces                    map[string]bool
@@ -138,7 +138,7 @@ type Block struct {
 
 type Operation struct {
 	Type        OpType
-	Shape       Shape
+	Shape       shapelib.Shape
 	ShapeHash   string
 	InkCost     uint32
 	ValidateNum uint8
@@ -193,7 +193,7 @@ func (m *Miner) init() {
 	m.serverAddr = args[0]
 	m.blockchain = make(map[string]*Block)
 	m.blockChildren = make(map[string][]string)
-	m.shapes = make(map[string]*Shape)
+	m.shapes = make(map[string]*shapelib.Shape)
 	m.nonces = make(map[string]bool)
 	m.tokens = make(map[string]bool)
 	m.miners = make(map[string]*rpc.Client)
@@ -775,32 +775,30 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 	}
 
 	validateNum := request.Payload[0].(uint8)
-	shapeType := request.Payload[1].(ShapeType)
+	shapeType := request.Payload[1].(shapelib.ShapeType)
 	shapeSvgString := request.Payload[2].(string)
 	fill := request.Payload[3].(string)
 	stroke := request.Payload[4].(string)
 
-	var geometry ShapeGeometry
-	shape := Shape{
-		ShapeType: shapeType,
+	shape := shapelib.Shape{
+		ShapeType:      shapeType,
 		ShapeSvgString: shapeSvgString,
-		Fill: fill,
-		Stroke: stroke,
-		Owner: m.pubKeyString
-	}
+		Fill:           fill,
+		Stroke:         stroke,
+		Owner:          m.pubKeyString}
 
 	canvasSettings := m.settings.CanvasSettings
-	valid, geometry, _err := shape.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax)
+	_, geometry, _err := shape.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax)
 	if _err != nil {
 		return _err
 	} else if uint32(geometry.GetInkCost()) > m.inkAccounts[m.pubKeyString] {
-		return InsufficientInkError(m.inkAccounts[m.pubKeyString)
+		return shapelib.InsufficientInkError(m.inkAccounts[m.pubKeyString])
 	} else {
-		for _shapeHash, _shape := m.shapes {
-			if _shape.Owner = shape.Owner {
+		for _shapeHash, _shape := range m.shapes {
+			if _shape.Owner == shape.Owner {
 				continue
-			} else if _geometry := _shape.GetGeometry(); _geometry.HasOverlap(geometry) {
-				return ShapeOverlapError(_shapeHash)
+			} else if _geometry, _ := _shape.GetGeometry(); _geometry.HasOverlap(geometry) {
+				return shapelib.ShapeOverlapError(_shapeHash)
 			}
 		}
 	}

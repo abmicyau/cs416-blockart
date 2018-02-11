@@ -9,8 +9,8 @@ package blockartlib
 
 import (
 	"crypto/ecdsa"
-	"fmt"
 	"crypto/rand"
+	"fmt"
 	"net/rpc"
 	"os"
 )
@@ -28,6 +28,7 @@ const (
 
 // Represents the type of operation for a shape on the canvas
 type OpType int
+
 const (
 	ADD OpType = iota
 	REMOVE
@@ -35,6 +36,7 @@ const (
 
 // Represents error codes for requests to an ink miner
 type MinerResponseError int
+
 const (
 	NO_ERROR MinerResponseError = iota
 	INVALID_SIGNATURE
@@ -266,13 +268,13 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 	checkError(err)
 	request := new(ArtnodeRequest)
 	request.Payload = make([]interface{}, 3)
-    request.Payload[0] = nonce
-    request.Payload[1] = r.String()
-    request.Payload[2] = s.String()
+	request.Payload[0] = nonce
+	request.Payload[1] = r.String()
+	request.Payload[2] = s.String()
 
-    // Request token and canvas settings from the miner
-    response := new(MinerResponse)
-    err = miner.Call("Miner.GetToken", request, response)
+	// Request token and canvas settings from the miner
+	response := new(MinerResponse)
+	err = miner.Call("Miner.GetToken", request, response)
 	if checkError(err) != nil || response.Error == INVALID_SIGNATURE {
 		return CanvasInstance{}, CanvasSettings{}, DisconnectedError(minerAddr)
 	}

@@ -1,7 +1,6 @@
-package svg
+package shapelib
 
 import (
-	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"math"
@@ -30,6 +29,27 @@ func (e InvalidShapeSvgStringError) Error() string {
 	return fmt.Sprintf("BlockArt: Bad shape svg string [%s]", string(e))
 }
 
+// Contains details
+type InvalidShapeFillStrokeError string
+
+func (e InvalidShapeFillStrokeError) Error() string {
+	return fmt.Sprintf("BlockArt: ", string(e))
+}
+
+// Contains amount of ink remaining.
+type InsufficientInkError uint32
+
+func (e InsufficientInkError) Error() string {
+	return fmt.Sprintf("BlockArt: Not enough ink to addShape [%d]", uint32(e))
+}
+
+// Contains the hash of the shape that this shape overlaps with.
+type ShapeOverlapError string
+
+func (e ShapeOverlapError) Error() string {
+	return fmt.Sprintf("BlockArt: Shape overlaps with a previously added shape [%s]", string(e))
+}
+
 // Represents a type of shape in the BlockArt system.
 type ShapeType int
 
@@ -37,20 +57,6 @@ const (
 	// Path shape.
 	PATH ShapeType = iota
 )
-
-type Shape struct {
-	ShapeType      ShapeType
-	ShapeSvgString string
-	Fill           string
-	Stroke         string
-	Owner          ecdsa.PublicKey
-
-	Commands     []Command
-	Vertices     []Point
-	LineSegments []LineSegment
-	Min          Point
-	Max          Point
-}
 
 // Represents a command with type(M, H, L, m, h, l, etc.)
 // and specified (x, y) coordinate
@@ -67,9 +73,119 @@ type Point struct {
 	Y int64
 }
 
+func (p Point) inBound(xMax uint32, yMax uint32) bool {
+	return p.X > 0 && p.Y > 0 && p.X < int64(xMax) && p.Y < int64(yMax)
+}
+
+type Shape struct {
+	Owner string
+
+	ShapeType      ShapeType
+	ShapeSvgString string
+	Fill           string
+	Stroke         string
+}
+
+// Determines whether the shape is valid
+func (s *Shape) IsValid(xMax uint32, yMax uint32) (valid bool, geometry ShapeGeometry, err error) {
+	if geometry, err = s.GetGeometry(); err == nil {
+		valid, err = geometry.isValid(xMax, yMax)
+	}
+
+	return
+}
+
+// Gets the shape geometry of a a provided shape
+func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
+	commands, err := getCommands(s.ShapeSvgString)
+	if err != nil {
+		return
+	}
+
+	geometry.ShapeSvgString, geometry.Fill = s.ShapeSvgString, s.Fill
+	geometry.Min, geometry.Max, geometry.Vertices = Point{}, Point{}, make([]Point, len(commands))
+	absPos, relPos := Point{0, 0}, Point{0, 0}
+	for i := range commands {
+		_command := commands[i]
+
+		switch _command.CmdType {
+		case "M":
+			absPos.X, absPos.Y = _command.X, _command.Y
+			relPos.X, relPos.Y = _command.X, _command.Y
+
+			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+		case "H":
+			relPos.X = _command.X
+
+			geometry.Vertices[i] = Point{relPos.X, absPos.Y}
+		case "V":
+			relPos.Y = _command.Y
+
+			geometry.Vertices[i] = Point{absPos.X, relPos.Y}
+		case "L":
+			relPos.X, relPos.Y = _command.X, _command.Y
+
+			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+		case "h":
+			relPos.X = relPos.X + _command.X
+
+			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+		case "v":
+			relPos.Y = relPos.Y + _command.Y
+
+			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+		case "l":
+			relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+
+			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+		case "Z":
+			geometry.Vertices[i] = geometry.Vertices[0]
+		case "z":
+			geometry.Vertices[i] = geometry.Vertices[0]
+		}
+
+		if i == 0 {
+			geometry.Min = relPos
+			geometry.Max = relPos
+		} else {
+			if relPos.X < geometry.Min.X {
+				geometry.Min.X = relPos.X
+			} else if relPos.X > geometry.Max.X {
+				geometry.Max.X = relPos.X
+			}
+
+			if relPos.Y < geometry.Min.Y {
+				geometry.Min.Y = relPos.Y
+			} else if relPos.Y > geometry.Max.Y {
+				geometry.Max.Y = relPos.Y
+			}
+		}
+	}
+
+	// Make sure its closed
+	if s.Fill != "transparent" && geometry.Vertices[0] != geometry.Vertices[len(geometry.Vertices)-1] {
+		err = InvalidShapeSvgStringError(s.ShapeSvgString)
+		return
+	}
+
+	geometry.LineSegments = getLineSegments(geometry.Vertices)
+
+	return
+}
+
+type ShapeGeometry struct {
+	ShapeSvgString string
+	Fill           string
+
+	Vertices     []Point
+	LineSegments []LineSegment
+	Min          Point
+	Max          Point
+}
+
 // Computes the ink required for the given shape according
 // to the fill specification.
-func (s *Shape) computeInkRequired() (inkUnits uint64) {
+func (s *ShapeGeometry) GetInkCost() (inkUnits uint64) {
 	if s.Fill == "transparent" {
 		inkUnits = computePerimeter(s.LineSegments)
 	} else {
@@ -79,8 +195,10 @@ func (s *Shape) computeInkRequired() (inkUnits uint64) {
 	return
 }
 
-// Determines if, within a canvas bound, a proposed shape is valid.
-func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
+// Determines if the following conditions hold:
+// - The shape is within the given bounding requirements
+// - The shape is non-overlapping if not transparent
+func (s *ShapeGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 	valid = true
 
 	for _, vertex := range s.Vertices {
@@ -113,82 +231,8 @@ func (s *Shape) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 	return
 }
 
-/* Evaluates a shapes provided SVG string to determine the following:
-- Its min and max bounding box
-- Its parsed commands
-- Its vertices
-- Its line segments
-*/
-func (s *Shape) evaluateSvgString() (err error) {
-	s.Min, s.Max = Point{}, Point{}
-	if s.Commands, err = getCommands(s.ShapeSvgString); err != nil {
-		return
-	}
-
-	vertices := make([]Point, len(s.Commands))
-
-	absPos, relPos := Point{0, 0}, Point{0, 0}
-	for i := range s.Commands {
-		_command := s.Commands[i]
-
-		switch _command.CmdType {
-		case "M":
-			absPos.X, absPos.Y = _command.X, _command.Y
-			relPos.X, relPos.Y = _command.X, _command.Y
-
-			vertices[i] = Point{relPos.X, relPos.Y}
-		case "H":
-			relPos.X = _command.X
-
-			vertices[i] = Point{relPos.X, absPos.Y}
-		case "V":
-			relPos.Y = _command.Y
-
-			vertices[i] = Point{absPos.X, relPos.Y}
-		case "L":
-			relPos.X, relPos.Y = _command.X, _command.Y
-
-			vertices[i] = Point{relPos.X, relPos.Y}
-		case "h":
-			relPos.X = relPos.X + _command.X
-
-			vertices[i] = Point{relPos.X, relPos.Y}
-		case "v":
-			relPos.Y = relPos.Y + _command.Y
-
-			vertices[i] = Point{relPos.X, relPos.Y}
-		case "l":
-			relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
-
-			vertices[i] = Point{relPos.X, relPos.Y}
-		}
-
-		if i == 0 {
-			s.Min = relPos
-			s.Max = relPos
-		} else {
-			if relPos.X < s.Min.X {
-				s.Min.X = relPos.X
-			} else if relPos.X > s.Max.X {
-				s.Max.X = relPos.X
-			}
-
-			if relPos.Y < s.Min.Y {
-				s.Min.Y = relPos.Y
-			} else if relPos.Y > s.Max.Y {
-				s.Max.Y = relPos.Y
-			}
-		}
-	}
-
-	s.Vertices = vertices
-	s.LineSegments = getLineSegments(vertices)
-
-	return
-}
-
 // Determines if a proposed shape overlape this shape.
-func (s *Shape) hasOverlap(_s Shape) bool {
+func (s *ShapeGeometry) HasOverlap(_s ShapeGeometry) bool {
 	// Easy preliminary: does the bounding box of _s encompass s
 	if _s.Fill != "transparent" && (_s.Min.X <= s.Min.X && _s.Min.Y <= s.Min.Y) && (_s.Max.X >= s.Max.X && _s.Max.Y >= s.Max.Y) {
 		return true
@@ -201,10 +245,6 @@ func (s *Shape) hasOverlap(_s Shape) bool {
 	} else {
 		return false
 	}
-}
-
-func (p Point) inBound(xMax uint32, yMax uint32) bool {
-	return p.X > 0 && p.Y > 0 && p.X < int64(xMax) && p.Y < int64(yMax)
 }
 
 // Represents a line segment with start and end points
@@ -402,6 +442,12 @@ func getCommands(svg string) (commands []Command, err error) {
 				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
 				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 			}
+		case "Z":
+			_command.CmdType = "Z"
+		case "z":
+			_command.CmdType = "z"
+		default:
+			err = InvalidShapeSvgStringError(svg)
 		}
 
 		if err != nil {
@@ -512,16 +558,12 @@ func hasOddConfiguration(polyIntersects []Point, vertexIntersects []Point) bool 
 // Extracts line segments (in order) from provided vertices,
 // where each vertex is connected to the next vertex
 func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
-	for i := range vertices {
+	for i := 0; i < len(vertices)-1; i++ {
 		var v1, v2 Point
 		var lineSegment LineSegment
 
 		v1 = vertices[i]
-		if i == len(vertices)-1 {
-			v2 = vertices[0]
-		} else {
-			v2 = vertices[i+1]
-		}
+		v2 = vertices[i+1]
 
 		lineSegment.Start = v1
 		lineSegment.End = v2

@@ -8,8 +8,6 @@ go run ink-miner.go [server ip:port] [pubKey] [privKey]
 
 package main
 
-import . "./svg"
-
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -27,6 +25,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"./shapelib"
 )
 
 //
@@ -120,7 +120,7 @@ type Miner struct {
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
 	pubKeyString              string
-	shapes                    map[string]*Shape
+	shapes                    map[string]*shapelib.Shape
 	inkAccounts               map[string]uint32
 	settings                  *MinerNetSettings
 	nonces                    map[string]bool
@@ -141,7 +141,7 @@ type Block struct {
 
 type Operation struct {
 	Type        OpType
-	Shape       Shape
+	Shape       shapelib.Shape
 	ShapeHash   string
 	InkCost     uint32
 	ValidateNum uint8
@@ -199,7 +199,7 @@ func (m *Miner) init() {
 	m.serverAddr = args[0]
 	m.blockchain = make(map[string]*Block)
 	m.blockChildren = make(map[string][]string)
-	m.shapes = make(map[string]*Shape)
+	m.shapes = make(map[string]*shapelib.Shape)
 	m.nonces = make(map[string]bool)
 	m.tokens = make(map[string]bool)
 	m.miners = make(map[string]*rpc.Client)
@@ -561,6 +561,34 @@ func (m *Miner) addBlockChild(block *Block, hash string) {
 	}
 }
 
+func (m *Miner) validateNewShape(s shapelib.Shape) (err error) {
+	if s.Stroke == "" {
+		return shapelib.InvalidShapeFillStrokeError("Shape stroke must be specified")
+	} else if s.Fill == "" {
+		return shapelib.InvalidShapeFillStrokeError("Shape fill must be specified")
+	} else if s.Stroke == "transparent" || s.Fill == "transparent" {
+		return shapelib.InvalidShapeFillStrokeError("Both fill and stroke cannot be transparent")
+	}
+
+	canvasSettings := m.settings.CanvasSettings
+	_, geo, err := s.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax)
+	if err != nil {
+		return err
+	} else if uint32(geo.GetInkCost()) > m.inkAccounts[m.pubKeyString] {
+		return shapelib.InsufficientInkError(m.inkAccounts[m.pubKeyString])
+	} else {
+		for _sHash, _s := range m.shapes {
+			if _s.Owner == s.Owner {
+				continue
+			} else if _geo, _ := _s.GetGeometry(); _geo.HasOverlap(geo) {
+				return shapelib.ShapeOverlapError(_sHash)
+			}
+		}
+	}
+
+	return
+}
+
 // </PRIVATE METHODS : MINER>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -814,7 +842,7 @@ func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) er
 	return nil
 }
 
-func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) error {
+func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err error) {
 	token := request.Token
 	_, validToken := m.tokens[token]
 	if !validToken {
@@ -823,10 +851,29 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) error
 	}
 
 	validateNum := request.Payload[0].(uint8)
-	shapeType := request.Payload[1].(ShapeType)
+	shapeType := request.Payload[1].(shapelib.ShapeType)
 	shapeSvgString := request.Payload[2].(string)
-	fill := request.Payload[3].(string)
-	stroke := request.Payload[4].(string)
+	fill := strings.Trim(request.Payload[3].(string), " ")
+	stroke := strings.Trim(request.Payload[4].(string), " ")
+
+	shape := shapelib.Shape{
+		ShapeType:      shapeType,
+		ShapeSvgString: shapeSvgString,
+		Fill:           fill,
+		Stroke:         stroke,
+		Owner:          m.pubKeyString}
+
+	err = m.validateNewShape(shape)
+	if err != nil {
+		// TODO
+		// response.Error = ERROR
+		// response.Payload = make([]interface{}, 3)
+		// response.Payload[0] = ""
+		// response.Payload[1] = ""
+		// response.Payload[2] = 0
+
+		return err
+	}
 
 	// TODO: Perform validation
 	fmt.Println(validateNum)

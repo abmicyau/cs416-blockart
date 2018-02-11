@@ -183,8 +183,9 @@ func main() {
 	miner.getMiners()
 	miner.getLongestChain()
 	logger.SetPrefix("[Mining]\n")
+	// go miner.testAddOperation() // UNCOMMENT to test op mining - can remove when ops start flowing
 	for {
-		miner.mineNoOpBlock()
+		miner.mineBlock()
 	}
 }
 
@@ -203,6 +204,9 @@ func (m *Miner) init() {
 	m.tokens = make(map[string]bool)
 	m.miners = make(map[string]*rpc.Client)
 	m.inkAccounts = make(map[string]uint32)
+	m.unminedOps = make(map[string]OperationRecord)
+	m.unvalidatedOps = make(map[string]OperationRecord)
+	m.validatedOps = make(map[string]OperationRecord)
 	m.inkAccounts[m.pubKeyString] = 0
 	if len(args) <= 1 {
 		logger.Fatalln("Missing keys, please generate with: go run generateKeys.go")
@@ -356,9 +360,9 @@ func (m *Miner) getLongestChain() {
 	m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKeyString, 0}
 }
 
-// Creates a noOp block and block hash that has a suffix of nHashZeroes
+// Creates a block and block hash that has a suffix of nHashZeroes
 // If successful, block is appended to the longestChainLastBlockHashin the blockchain map
-func (m *Miner) mineNoOpBlock() {
+func (m *Miner) mineBlock() {
 	var nonce uint32 = 0
 	var prevHash string
 	var blockNo uint32
@@ -377,20 +381,18 @@ func (m *Miner) mineNoOpBlock() {
 			prevHash = m.longestChainLastBlockHash
 			blockNo = m.blockchain[prevHash].BlockNo + 1
 		default:
-			block := &Block{blockNo, prevHash, nil, m.pubKeyString, nonce}
-			encodedBlock, err := json.Marshal(*block)
-			if err != nil {
-				panic(err)
+			var block Block
+			// Will create a opBlock or noOpBlock depending upon whether unminedOps are waiting to be mined
+			if len(m.unminedOps) > 0 {
+				var opRecordArray []OperationRecord
+				for _, opRecord := range m.unminedOps {
+					opRecordArray = append(opRecordArray, opRecord)
+				}
+				block = Block{blockNo, prevHash, opRecordArray, m.pubKeyString, nonce}
+			} else {
+				block = Block{blockNo, prevHash, nil, m.pubKeyString, nonce}
 			}
-			blockHash := md5Hash(encodedBlock)
-			if m.hashMatchesPOWDifficulty(blockHash) {
-				logger.Println("Found a new Block!: ", block, blockHash)
-				m.blockchain[blockHash] = block
-				m.addBlockChild(block, blockHash)
-				logger.Println("Current BlockChainMap: ", m.blockchain)
-				m.longestChainLastBlockHash = blockHash
-				m.applyBlock(block)
-				m.disseminateToConnectedMiners(*block, blockHash)
+			if m.blockSuccessfullyMined(&block) {
 				return
 			} else {
 				nonce++
@@ -653,6 +655,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	// TODO:
 	//		Validate Block
 	isHashValid := m.validateBlock(block, blockHash)
+	m.moveUnminedToUnvalidated(&block) // need to remove unmined ops to stop mining mined ops
 	//		If Valid, add to block chain
 	//		Else return invalid
 
@@ -896,14 +899,6 @@ func (m *Miner) validateOp(opRec OperationRecord) bool {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>
 
-// Computes the md5 hash of a given byte slice
-func md5Hash(data []byte) string {
-	h := md5.New()
-	h.Write(data)
-	str := hex.EncodeToString(h.Sum(nil))
-	return str
-}
-
 func checkError(err error) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -933,10 +928,55 @@ func getRand256() string {
 	return string(str)
 }
 
+func (m *Miner) blockSuccessfullyMined(block *Block) bool {
+	encodedBlock, err := json.Marshal(*block)
+	checkError(err)
+	blockHash := md5Hash(encodedBlock)
+	if m.hashMatchesPOWDifficulty(blockHash) {
+		logger.Println("Found a new Block!: ", block, blockHash)
+		m.blockchain[blockHash] = block
+		m.addBlockChild(block, blockHash)
+		logger.Println("Current BlockChainMap: ", m.blockchain)
+		m.longestChainLastBlockHash = blockHash
+		m.applyBlock(block)
+		m.disseminateToConnectedMiners(*block, blockHash)
+		m.moveUnminedToUnvalidated(block)
+		return true
+	} else {
+		return false
+	}
+}
+
+// Computes the md5 hash of a given byte slice
+func md5Hash(data []byte) string {
+	h := md5.New()
+	h.Write(data)
+	str := hex.EncodeToString(h.Sum(nil))
+	return str
+}
+
 // Asserts that block hash matches the intended POW difficulty
 func (m *Miner) hashMatchesPOWDifficulty(blockhash string) bool {
 	return strings.HasSuffix(blockhash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock)))
 }
+
+func (m *Miner) moveUnminedToUnvalidated(block *Block) {
+	for _, opRecord := range block.Records {
+		m.unvalidatedOps[opRecord.OpSig] = opRecord
+		delete(m.unminedOps, opRecord.OpSig)
+	}
+}
+
+// UNCOMMENT to test op mining - can remove once ops begin to flow
+
+// func (m *Miner) testAddOperation() {
+// 	shape := &Shape{PATH, "svgString", "fill", "stroke", m.pubKey, make([]Command, 1), make([]Point, 1), make([]LineSegment, 1), Point{0, 1}, Point{1, 0}}
+// 	op := &Operation{ADD, *shape, "shapehashstring", uint32(20), uint8(3)}
+// 	opRecord := &OperationRecord{*op, "some sig", "somekey"}
+// 	time.Sleep(time.Second * 5)
+// 	m.unminedOps[opRecord.OpSig] = *opRecord
+// 	return
+// }
 
 // </HELPER METHODS>
 ////////////////////////////////////////////////////////////////////////////////////////////

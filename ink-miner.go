@@ -785,12 +785,24 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		ShapeType: shapeType,
 		ShapeSvgString: shapeSvgString,
 		Fill: fill,
-		Stroke: stroke
+		Stroke: stroke,
+		Owner: m.pubKeyString
 	}
 
 	canvasSettings := m.settings.CanvasSettings
-	if valid, geometry, err := shape.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax); err != nil {
-		return
+	valid, geometry, _err := shape.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax)
+	if _err != nil {
+		return _err
+	} else if uint32(geometry.GetInkCost()) > m.inkAccounts[m.pubKeyString] {
+		return InsufficientInkError(m.inkAccounts[m.pubKeyString)
+	} else {
+		for _shapeHash, _shape := m.shapes {
+			if _shape.Owner = shape.Owner {
+				continue
+			} else if _geometry := _shape.GetGeometry(); _geometry.HasOverlap(geometry) {
+				return ShapeOverlapError(_shapeHash)
+			}
+		}
 	}
 
 	// TODO: Perform validation

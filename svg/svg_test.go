@@ -46,7 +46,7 @@ func TestGetCommands(t *testing.T) {
 // Test vertices generated from commands
 func TestGetVertices(t *testing.T) {
 	shape := Shape{ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
-	geo, _ := shape.getGeometry()
+	geo, _ := shape.GetGeometry()
 
 	vertices := geo.Vertices
 	verticesExpected := []Point{
@@ -72,8 +72,8 @@ func TestGetVertices(t *testing.T) {
 func TestGetLineSegments(t *testing.T) {
 	shape1 := Shape{ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
 	shape2 := Shape{ShapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}
-	geo1, _ := shape1.getGeometry()
-	geo2, _ := shape2.getGeometry()
+	geo1, _ := shape1.GetGeometry()
+	geo2, _ := shape2.GetGeometry()
 
 	lineSegments1 := getLineSegments(geo1.Vertices)
 	lineSegments1Expected := []LineSegment{
@@ -132,9 +132,9 @@ func TestLineOverlap(t *testing.T) {
 	shape1 := Shape{ShapeSvgString: "M 10 10 L 5 5 "}
 	shape2 := Shape{ShapeSvgString: "M 5 5 L 10 10"}
 	shape3 := Shape{ShapeSvgString: "M 7 5 L 5 10 v -2 Z"}
-	geo1, _ := shape1.getGeometry()
-	geo2, _ := shape2.getGeometry()
-	geo3, _ := shape3.getGeometry()
+	geo1, _ := shape1.GetGeometry()
+	geo2, _ := shape2.GetGeometry()
+	geo3, _ := shape3.GetGeometry()
 
 	lineSegments1 := getLineSegments(geo1.Vertices)
 	lineSegments2 := getLineSegments(geo2.Vertices)
@@ -173,29 +173,29 @@ func TestShapeValid(t *testing.T) {
 	shapeOutOfMaxBound := Shape{Fill: "transparent", ShapeSvgString: "M 7 5 h 10000000"}
 	shapeSelfIntersectTrans := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
 	shapeSelfIntersectNonTrans := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
-	geoLineInBound, _ := shapeLineInBound.getGeometry()
-	geoOutOfMinBound, _ := shapeOutOfMinBound.getGeometry()
-	geoOutOfMaxBound, _ := shapeOutOfMaxBound.getGeometry()
-	geoSelfIntersectTrans, _ := shapeSelfIntersectTrans.getGeometry()
-	geoSelfIntersectNonTrans, _ := shapeSelfIntersectNonTrans.getGeometry()
+	geoLineInBound, _ := shapeLineInBound.GetGeometry()
+	geoOutOfMinBound, _ := shapeOutOfMinBound.GetGeometry()
+	geoOutOfMaxBound, _ := shapeOutOfMaxBound.GetGeometry()
+	geoSelfIntersectTrans, _ := shapeSelfIntersectTrans.GetGeometry()
+	geoSelfIntersectNonTrans, _ := shapeSelfIntersectNonTrans.GetGeometry()
 
-	if valid, err := geoLineInBound.isValid(xMax, yMax, shapeLineInBound.Fill); valid != true {
+	if valid, err := geoLineInBound.isValid(xMax, yMax); valid != true {
 		t.Error("Expected valid shape, got", err)
 	}
 
-	if valid, err := geoSelfIntersectTrans.isValid(xMax, yMax, shapeSelfIntersectTrans.Fill); valid != true {
+	if valid, err := geoSelfIntersectTrans.isValid(xMax, yMax); valid != true {
 		t.Error("Expected valid shape, got", err)
 	}
 
-	if valid, err := geoOutOfMinBound.isValid(xMax, yMax, shapeOutOfMinBound.Fill); valid != false || err == nil {
+	if valid, err := geoOutOfMinBound.isValid(xMax, yMax); valid != false || err == nil {
 		t.Error("Expected invalid shape, got valid")
 	}
 
-	if valid, err := geoOutOfMaxBound.isValid(xMax, yMax, shapeOutOfMaxBound.Fill); valid != false || err == nil {
+	if valid, err := geoOutOfMaxBound.isValid(xMax, yMax); valid != false || err == nil {
 		t.Error("Expected invalid shape, got valid")
 	}
 
-	if valid, err := geoSelfIntersectNonTrans.isValid(xMax, yMax, shapeSelfIntersectNonTrans.Fill); valid != false || err == nil {
+	if valid, err := geoSelfIntersectNonTrans.isValid(xMax, yMax); valid != false || err == nil {
 		t.Error("Expected invalid shape, got valid")
 	}
 }
@@ -208,35 +208,35 @@ func TestInkRequired(t *testing.T) {
 	shape4 := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                       // Triangle
 	shape5 := Shape{Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}     // Dracula teeth
 	shape6 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth
-	geo1, _ := shape1.getGeometry()
-	geo2, _ := shape2.getGeometry()
-	geo3, _ := shape3.getGeometry()
-	geo4, _ := shape4.getGeometry()
-	geo5, _ := shape5.getGeometry()
-	geo6, _ := shape6.getGeometry()
+	geo1, _ := shape1.GetGeometry()
+	geo2, _ := shape2.GetGeometry()
+	geo3, _ := shape3.GetGeometry()
+	geo4, _ := shape4.GetGeometry()
+	geo5, _ := shape5.GetGeometry()
+	geo6, _ := shape6.GetGeometry()
 
-	if ink := geo1.computeInkRequired(); ink != 8 {
+	if ink := geo1.GetInkCost(); ink != 8 {
 		t.Error("Expected 8 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
-	if ink := geo2.computeInkRequired(); ink != 26 {
+	if ink := geo2.GetInkCost(); ink != 26 {
 		t.Error("Expected 26 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
 	// Note: although its 5X5 at first glance, its actual 5X6 in pixels
-	if ink := geo3.computeInkRequired(); ink != 30 {
+	if ink := geo3.GetInkCost(); ink != 30 {
 		t.Error("Expected 30 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
-	if ink := geo4.computeInkRequired(); ink != 12 {
+	if ink := geo4.GetInkCost(); ink != 12 {
 		t.Error("Expected 12 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
-	if ink := geo5.computeInkRequired(); ink != 70 {
+	if ink := geo5.GetInkCost(); ink != 70 {
 		t.Error("Expected 70 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
-	if ink := geo6.computeInkRequired(); ink != 156 {
+	if ink := geo6.GetInkCost(); ink != 156 {
 		t.Error("Expected 156 ink units, got", strconv.FormatUint(ink, 10))
 	}
 }
@@ -247,34 +247,34 @@ func TestOverlap(t *testing.T) {
 	shapeTriangleFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                      // Triangle -- Filled
 	shapeDracula := Shape{Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}           // Dracula teeth -- Transparent
 	shapeDraculaFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth -- Filled
-	geoTriangle, _ := shapeTriangle.getGeometry()
-	geoTriangleFilled, _ := shapeTriangleFilled.getGeometry()
-	geoDracula, _ := shapeDracula.getGeometry()
-	geoDraculaFilled, _ := shapeDraculaFilled.getGeometry()
+	geoTriangle, _ := shapeTriangle.GetGeometry()
+	geoTriangleFilled, _ := shapeTriangleFilled.GetGeometry()
+	geoDracula, _ := shapeDracula.GetGeometry()
+	geoDraculaFilled, _ := shapeDraculaFilled.GetGeometry()
 
 	// Test polygon surrounding shape
 	shapeSquare := Shape{Fill: "transparent", ShapeSvgString: "M 1 1 H 40 V -40 H -40 Z"}
-	geoSquare, _ := shapeSquare.getGeometry()
-	if overlap := geoTriangle.hasOverlap(geoSquare); overlap != false {
+	geoSquare, _ := shapeSquare.GetGeometry()
+	if overlap := geoTriangle.HasOverlap(geoSquare); overlap != false {
 		t.Error("Expected big non-filled square not to overlap smaller triangle.")
 	}
 
 	squareFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 1 1 h 40 v 40 h -40 Z"}
-	geoSquareFilled, _ := squareFilled.getGeometry()
-	if overlap := geoTriangle.hasOverlap(geoSquareFilled); overlap != true {
+	geoSquareFilled, _ := squareFilled.GetGeometry()
+	if overlap := geoTriangle.HasOverlap(geoSquareFilled); overlap != true {
 		t.Error("Expected big filled square to overlap smaller triangle.")
 	}
 
 	// Test basic intersection
 	shapeTrans := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5"}
 	shapeFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5"}
-	geoTrans, _ := shapeTrans.getGeometry()
-	geoFilled, _ := shapeFilled.getGeometry()
+	geoTrans, _ := shapeTrans.GetGeometry()
+	geoFilled, _ := shapeFilled.GetGeometry()
 
-	overlap := geoTriangle.hasOverlap(geoTrans)
-	overlap = geoTriangleFilled.hasOverlap(geoTrans)
-	overlap = geoTriangle.hasOverlap(geoFilled)
-	overlap = geoTriangleFilled.hasOverlap(geoFilled)
+	overlap := geoTriangle.HasOverlap(geoTrans)
+	overlap = geoTriangleFilled.HasOverlap(geoTrans)
+	overlap = geoTriangle.HasOverlap(geoFilled)
+	overlap = geoTriangleFilled.HasOverlap(geoFilled)
 
 	if overlap != true {
 		t.Error("Expected overlap, got no overlap.")
@@ -289,64 +289,64 @@ func TestOverlap(t *testing.T) {
 	squareLeftToothFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
 	squareBetweenTeeth := Shape{Fill: "transparent", ShapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
 	squareBetweenTeethFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
-	geoLongRectangle, _ := longRectangle.getGeometry()
-	geoLongRectangleFilled, _ := longRectangleFilled.getGeometry()
-	geoSquareCenter, _ := squareCenter.getGeometry()
-	geoSquareCenterFilled, _ := squareCenterFilled.getGeometry()
-	geoSquareLeftTooth, _ := squareLeftTooth.getGeometry()
-	geoSquareLeftToothFilled, _ := squareLeftToothFilled.getGeometry()
-	geoSquareBetweenTeeth, _ := squareBetweenTeeth.getGeometry()
-	geoSquareBetweenTeethFilled, _ := squareBetweenTeethFilled.getGeometry()
+	geoLongRectangle, _ := longRectangle.GetGeometry()
+	geoLongRectangleFilled, _ := longRectangleFilled.GetGeometry()
+	geoSquareCenter, _ := squareCenter.GetGeometry()
+	geoSquareCenterFilled, _ := squareCenterFilled.GetGeometry()
+	geoSquareLeftTooth, _ := squareLeftTooth.GetGeometry()
+	geoSquareLeftToothFilled, _ := squareLeftToothFilled.GetGeometry()
+	geoSquareBetweenTeeth, _ := squareBetweenTeeth.GetGeometry()
+	geoSquareBetweenTeethFilled, _ := squareBetweenTeethFilled.GetGeometry()
 
-	if overlap := geoDracula.hasOverlap(geoLongRectangle); overlap != true {
+	if overlap := geoDracula.HasOverlap(geoLongRectangle); overlap != true {
 		t.Error("Expected long rectangle across dracula teeth to overlap, got no overlap.")
 	}
-	if overlap := geoDraculaFilled.hasOverlap(geoLongRectangle); overlap != true {
+	if overlap := geoDraculaFilled.HasOverlap(geoLongRectangle); overlap != true {
 		t.Error("Expected long rectangle across dracula teeth to overlap, got no overlap.")
 	}
-	if overlap := geoDracula.hasOverlap(geoLongRectangleFilled); overlap != true {
+	if overlap := geoDracula.HasOverlap(geoLongRectangleFilled); overlap != true {
 		t.Error("Expected long rectangle across dracula teeth to overlap, got no overlap.")
 	}
-	if overlap := geoDraculaFilled.hasOverlap(geoLongRectangleFilled); overlap != true {
+	if overlap := geoDraculaFilled.HasOverlap(geoLongRectangleFilled); overlap != true {
 		t.Error("Expected long rectangle across dracula teeth to overlap, got no overlap.")
 	}
 
-	if overlap := geoDracula.hasOverlap(geoSquareCenter); overlap != false {
+	if overlap := geoDracula.HasOverlap(geoSquareCenter); overlap != false {
 		t.Error("Expected small square in center of dracula teeth to not overlap, got overlap.")
 	}
-	if overlap := geoDraculaFilled.hasOverlap(geoSquareCenter); overlap != true {
+	if overlap := geoDraculaFilled.HasOverlap(geoSquareCenter); overlap != true {
 		t.Error("Expected small square in center of dracula teeth to overlap, got no overlap.")
 	}
-	if overlap := geoDracula.hasOverlap(geoSquareCenterFilled); overlap != false {
+	if overlap := geoDracula.HasOverlap(geoSquareCenterFilled); overlap != false {
 		t.Error("Expected small square in center of dracula teeth to not overlap, got overlap.")
 	}
-	if overlap := geoDraculaFilled.hasOverlap(geoSquareCenterFilled); overlap != true {
+	if overlap := geoDraculaFilled.HasOverlap(geoSquareCenterFilled); overlap != true {
 		t.Error("Expected small square in center of dracula teeth to overlap, got no overlap.")
 	}
 
-	if overlap := geoDracula.hasOverlap(geoSquareLeftTooth); overlap != false {
+	if overlap := geoDracula.HasOverlap(geoSquareLeftTooth); overlap != false {
 		t.Error("Expected left tooth square to not overlap, got overlap.")
 	}
-	if overlap := geoDraculaFilled.hasOverlap(geoSquareLeftTooth); overlap != true {
+	if overlap := geoDraculaFilled.HasOverlap(geoSquareLeftTooth); overlap != true {
 		t.Error("Expected left tooth square to overlap, got no overlap.")
 	}
-	if overlap := geoDracula.hasOverlap(geoSquareLeftToothFilled); overlap != false {
+	if overlap := geoDracula.HasOverlap(geoSquareLeftToothFilled); overlap != false {
 		t.Error("Expected left tooth square to not overlap, got overlap.")
 	}
-	if overlap := geoDraculaFilled.hasOverlap(geoSquareLeftToothFilled); overlap != true {
+	if overlap := geoDraculaFilled.HasOverlap(geoSquareLeftToothFilled); overlap != true {
 		t.Error("Expected left tooth square to overlap, got no overlap.")
 	}
 
-	if overlap := geoDracula.hasOverlap(geoSquareBetweenTeeth); overlap != false {
+	if overlap := geoDracula.HasOverlap(geoSquareBetweenTeeth); overlap != false {
 		t.Error("Expected square between teeth (outside draculas teeth polygon) to not overlap, got overlap.")
 	}
-	if overlap := geoDraculaFilled.hasOverlap(geoSquareBetweenTeeth); overlap != false {
+	if overlap := geoDraculaFilled.HasOverlap(geoSquareBetweenTeeth); overlap != false {
 		t.Error("Expected square between teeth (outside draculas teeth polygon) to not overlap, got overlap.")
 	}
-	if overlap := geoDracula.hasOverlap(geoSquareBetweenTeethFilled); overlap != false {
+	if overlap := geoDracula.HasOverlap(geoSquareBetweenTeethFilled); overlap != false {
 		t.Error("Expected square between teeth (outside draculas teeth polygon) to not overlap, got overlap.")
 	}
-	if overlap := geoDraculaFilled.hasOverlap(geoSquareBetweenTeethFilled); overlap != false {
+	if overlap := geoDraculaFilled.HasOverlap(geoSquareBetweenTeethFilled); overlap != false {
 		t.Error("Expected square between teeth (outside draculas teeth polygon) to not overlap, got overlap.")
 	}
 

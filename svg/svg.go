@@ -1,7 +1,6 @@
 package svg
 
 import (
-	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"math"
@@ -58,23 +57,25 @@ func (p Point) inBound(xMax uint32, yMax uint32) bool {
 }
 
 type Shape struct {
+	Owner string
+
 	ShapeType      ShapeType
 	ShapeSvgString string
 	Fill           string
 	Stroke         string
-	Owner          ecdsa.PublicKey
 }
 
+// Determines whether the shape is valid
 func (s *Shape) IsValid(xMax uint32, yMax uint32) (valid bool, geometry ShapeGeometry, err error) {
-	if geometry, err = s.getGeometry(); err == nil {
-		valid, err = geometry.isValid(xMax, yMax, s.Fill)
+	if geometry, err = s.GetGeometry(); err == nil {
+		valid, err = geometry.isValid(xMax, yMax)
 	}
 
 	return
 }
 
 // Gets the shape geometry of a a provided shape
-func (s *Shape) getGeometry() (geometry ShapeGeometry, err error) {
+func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 	commands, err := getCommands(s.ShapeSvgString)
 	if err != nil {
 		return
@@ -153,7 +154,7 @@ type ShapeGeometry struct {
 
 // Computes the ink required for the given shape according
 // to the fill specification.
-func (s *ShapeGeometry) computeInkRequired() (inkUnits uint64) {
+func (s *ShapeGeometry) GetInkCost() (inkUnits uint64) {
 	if s.Fill == "transparent" {
 		inkUnits = computePerimeter(s.LineSegments)
 	} else {
@@ -163,8 +164,10 @@ func (s *ShapeGeometry) computeInkRequired() (inkUnits uint64) {
 	return
 }
 
-// Determines if, within a canvas bound, a proposed shape is valid.
-func (s *ShapeGeometry) isValid(xMax uint32, yMax uint32, fill string) (valid bool, err error) {
+// Determines if the following conditions hold:
+// - The shape is within the given bounding requirements
+// - The shape is non-overlapping if not transparent
+func (s *ShapeGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 	valid = true
 
 	for _, vertex := range s.Vertices {
@@ -175,7 +178,7 @@ func (s *ShapeGeometry) isValid(xMax uint32, yMax uint32, fill string) (valid bo
 		}
 	}
 
-	if fill != "transparent" {
+	if s.Fill != "transparent" {
 		for i := range s.LineSegments {
 			curSeg := s.LineSegments[i]
 
@@ -198,7 +201,7 @@ func (s *ShapeGeometry) isValid(xMax uint32, yMax uint32, fill string) (valid bo
 }
 
 // Determines if a proposed shape overlape this shape.
-func (s *ShapeGeometry) hasOverlap(_s ShapeGeometry) bool {
+func (s *ShapeGeometry) HasOverlap(_s ShapeGeometry) bool {
 	// Easy preliminary: does the bounding box of _s encompass s
 	if _s.Fill != "transparent" && (_s.Min.X <= s.Min.X && _s.Min.Y <= s.Min.Y) && (_s.Max.X >= s.Max.X && _s.Max.Y >= s.Max.Y) {
 		return true

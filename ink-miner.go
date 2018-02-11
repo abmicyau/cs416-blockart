@@ -384,7 +384,6 @@ func (m *Miner) mineBlock() {
 			var block Block
 			// Will create a opBlock or noOpBlock depending upon whether unminedOps are waiting to be mined
 			if len(m.unminedOps) > 0 {
-				logger.Println("mining operation block")
 				var opRecordArray []OperationRecord
 				for _, opRecord := range m.unminedOps {
 					opRecordArray = append(opRecordArray, opRecord)

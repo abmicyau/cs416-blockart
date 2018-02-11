@@ -680,9 +680,8 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 }
 
 func (m *Miner) SendOp(request *MinerRequest, response *MinerResponse) error {
-	logger.Println("Received Block: ", request.Payload[1].(string))
-
 	opRec := request.Payload[0].(OperationRecord)
+	logger.Println("Received Op: ", opRec.OpSig)
 	isSigValid := m.validateOp(opRec)
 	// If new block, disseminate
 	_, unMinedExists := m.unminedOps[opRec.OpSig]

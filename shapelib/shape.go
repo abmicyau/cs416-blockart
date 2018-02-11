@@ -442,6 +442,12 @@ func getCommands(svg string) (commands []Command, err error) {
 				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
 				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 			}
+		case "Z":
+			_command.CmdType = "Z"
+		case "z":
+			_command.CmdType = "z"
+		default:
+			err = InvalidShapeSvgStringError(svg)
 		}
 
 		if err != nil {
@@ -552,7 +558,7 @@ func hasOddConfiguration(polyIntersects []Point, vertexIntersects []Point) bool 
 // Extracts line segments (in order) from provided vertices,
 // where each vertex is connected to the next vertex
 func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
-	for i := 0; i < len(vertices)-2; i++ {
+	for i := 0; i < len(vertices)-1; i++ {
 		var v1, v2 Point
 		var lineSegment LineSegment
 

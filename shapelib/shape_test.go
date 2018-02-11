@@ -43,17 +43,66 @@ func TestGetCommands(t *testing.T) {
 	}
 }
 
+// Test get geometry
+func TestGetGeometry(t *testing.T) {
+	shapeTransClosed := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
+	shapeTransOpen := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
+	shapeFilledClosed1 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
+	shapeFilledClosed2 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 L 10 10"}
+	shapeFilledOpen := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
+
+	if _, err := shapeTransClosed.GetGeometry(); err != nil {
+		t.Error("Expected no error for transparent closed shape, got: ", err)
+	}
+
+	if _, err := shapeTransOpen.GetGeometry(); err != nil {
+		t.Error("Expected no error for transparent open shape, got: ", err)
+	}
+
+	if _, err := shapeFilledClosed1.GetGeometry(); err != nil {
+		t.Error("Expected no error for filled close shape, got: ", err)
+	}
+
+	if _, err := shapeFilledClosed2.GetGeometry(); err != nil {
+		t.Error("Expected no error for filled close shape, got: ", err)
+	}
+
+	if _, err := shapeFilledOpen.GetGeometry(); err == nil {
+		t.Error("Expected error for filled open shape, got none")
+	}
+}
+
 // Test vertices generated from commands
 func TestGetVertices(t *testing.T) {
-	shape := Shape{ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
-	geo, _ := shape.GetGeometry()
+	shapeClosed := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
+	shapeOpen := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
+	geoClosed, _ := shapeClosed.GetGeometry()
+	geoOpen, _ := shapeOpen.GetGeometry()
 
-	vertices := geo.Vertices
+	vertices := geoClosed.Vertices
 	verticesExpected := []Point{
 		Point{10, 10},
-		Point{5, 5},
-		Point{2, 5}}
+		Point{13, 10},
+		Point{12, 13},
+		Point{10, 10}}
+	for i := range vertices {
+		vertex := vertices[i]
+		vertexExpected := verticesExpected[i]
 
+		if vertex.X != vertexExpected.X {
+			t.Error("Expected "+strconv.Itoa(int(vertexExpected.X))+", got ", strconv.Itoa(int(vertex.X)))
+		}
+
+		if vertex.Y != vertexExpected.Y {
+			t.Error("Expected "+strconv.Itoa(int(vertexExpected.Y))+", got ", strconv.Itoa(int(vertex.Y)))
+		}
+	}
+
+	vertices = geoOpen.Vertices
+	verticesExpected = []Point{
+		Point{10, 10},
+		Point{13, 10},
+		Point{12, 13}}
 	for i := range vertices {
 		vertex := vertices[i]
 		vertexExpected := verticesExpected[i]
@@ -70,35 +119,27 @@ func TestGetVertices(t *testing.T) {
 
 // Test line segments generated from vertices
 func TestGetLineSegments(t *testing.T) {
-	shape1 := Shape{ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
-	shape2 := Shape{ShapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}
-	geo1, _ := shape1.GetGeometry()
-	geo2, _ := shape2.GetGeometry()
+	shapeClosed := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
+	shapeOpen := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
+	geoClosed, _ := shapeClosed.GetGeometry()
+	geoOpen, _ := shapeOpen.GetGeometry()
 
-	lineSegments1 := getLineSegments(geo1.Vertices)
-	lineSegments1Expected := []LineSegment{
-		LineSegment{A: -5, B: 5, C: 0},
-		LineSegment{A: 0, B: 3, C: 15},
-		LineSegment{A: 5, B: -8, C: -30}}
+	lineSegments := getLineSegments(geoClosed.Vertices)
+	lineSegmentsExpected := []LineSegment{
+		LineSegment{Start: Point{10, 10}, End: Point{13, 10}, A: 0, B: -3, C: -30},
+		LineSegment{Start: Point{13, 10}, End: Point{12, 13}, A: 3, B: 1, C: 49},
+		LineSegment{Start: Point{12, 13}, End: Point{10, 10}, A: -3, B: 2, C: -10}}
+	for i := range lineSegments {
+		lineSegment := lineSegments[i]
+		lineSegmentExpected := lineSegmentsExpected[i]
 
-	lineSegments2 := getLineSegments(geo2.Vertices)
-	lineSegments2Expected := []LineSegment{
-		LineSegment{
-			Start: Point{5, 5},
-			End:   Point{10, 5}},
-		LineSegment{
-			Start: Point{10, 5},
-			End:   Point{10, 10}},
-		LineSegment{
-			Start: Point{10, 10},
-			End:   Point{5, 10}},
-		LineSegment{
-			Start: Point{5, 10},
-			End:   Point{5, 5}}}
+		if lineSegment.Start != lineSegmentExpected.Start {
+			t.Error("Start point mismatch on line segment.")
+		}
 
-	for i := range lineSegments1 {
-		lineSegment := lineSegments1[i]
-		lineSegmentExpected := lineSegments1Expected[i]
+		if lineSegment.End != lineSegmentExpected.End {
+			t.Error("End point mismatch on line segment.")
+		}
 
 		if lineSegment.A != lineSegmentExpected.A {
 			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.A))+", got ", strconv.Itoa(int(lineSegment.A)))
@@ -113,9 +154,13 @@ func TestGetLineSegments(t *testing.T) {
 		}
 	}
 
-	for i := range lineSegments2 {
-		lineSegment := lineSegments2[i]
-		lineSegmentExpected := lineSegments2Expected[i]
+	lineSegments = getLineSegments(geoOpen.Vertices)
+	lineSegmentsExpected = []LineSegment{
+		LineSegment{Start: Point{10, 10}, End: Point{13, 10}, A: 0, B: -3, C: -30},
+		LineSegment{Start: Point{13, 10}, End: Point{12, 13}, A: 3, B: 1, C: 49}}
+	for i := range lineSegments {
+		lineSegment := lineSegments[i]
+		lineSegmentExpected := lineSegmentsExpected[i]
 
 		if lineSegment.Start != lineSegmentExpected.Start {
 			t.Error("Start point mismatch on line segment.")
@@ -124,14 +169,26 @@ func TestGetLineSegments(t *testing.T) {
 		if lineSegment.End != lineSegmentExpected.End {
 			t.Error("End point mismatch on line segment.")
 		}
+
+		if lineSegment.A != lineSegmentExpected.A {
+			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.A))+", got ", strconv.Itoa(int(lineSegment.A)))
+		}
+
+		if lineSegment.B != lineSegmentExpected.B {
+			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.B))+", got ", strconv.Itoa(int(lineSegment.B)))
+		}
+
+		if lineSegment.C != lineSegmentExpected.C {
+			t.Error("Expected "+strconv.Itoa(int(lineSegmentExpected.C))+", got ", strconv.Itoa(int(lineSegment.C)))
+		}
 	}
 }
 
 // Test line-to-line overlap
 func TestLineOverlap(t *testing.T) {
-	shape1 := Shape{ShapeSvgString: "M 10 10 L 5 5 "}
-	shape2 := Shape{ShapeSvgString: "M 5 5 L 10 10"}
-	shape3 := Shape{ShapeSvgString: "M 7 5 L 5 10 v -2 Z"}
+	shape1 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5"}
+	shape2 := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 Z"}
+	shape3 := Shape{Fill: "transparent", ShapeSvgString: "M 7 5 L 5 10 v -2 Z"}
 	geo1, _ := shape1.GetGeometry()
 	geo2, _ := shape2.GetGeometry()
 	geo3, _ := shape3.GetGeometry()
@@ -266,8 +323,8 @@ func TestOverlap(t *testing.T) {
 	}
 
 	// Test basic intersection
-	shapeTrans := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5"}
-	shapeFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5"}
+	shapeTrans := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z"}
+	shapeFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z"}
 	geoTrans, _ := shapeTrans.GetGeometry()
 	geoFilled, _ := shapeFilled.GetGeometry()
 

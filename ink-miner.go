@@ -766,7 +766,7 @@ func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) er
 	return nil
 }
 
-func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) error {
+func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err error) {
 	token := request.Token
 	_, validToken := m.tokens[token]
 	if !validToken {
@@ -779,6 +779,19 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) error
 	shapeSvgString := request.Payload[2].(string)
 	fill := request.Payload[3].(string)
 	stroke := request.Payload[4].(string)
+
+	var geometry ShapeGeometry
+	shape := Shape{
+		ShapeType: shapeType,
+		ShapeSvgString: shapeSvgString,
+		Fill: fill,
+		Stroke: stroke
+	}
+
+	canvasSettings := m.settings.CanvasSettings
+	if valid, geometry, err := shape.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax); err != nil {
+		return
+	}
 
 	// TODO: Perform validation
 	fmt.Println(validateNum)

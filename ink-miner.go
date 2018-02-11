@@ -651,6 +651,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	// TODO:
 	//		Validate Block
 	isHashValid := m.validateBlock(block, blockHash)
+	m.moveUnminedToUnvalidated(&block) // need to remove unmined ops to stop mining mined ops
 	//		If Valid, add to block chain
 	//		Else return invalid
 

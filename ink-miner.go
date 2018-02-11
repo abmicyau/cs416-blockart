@@ -183,6 +183,7 @@ func main() {
 	miner.getMiners()
 	miner.getLongestChain()
 	logger.SetPrefix("[Mining]\n")
+	// go miner.testAddOperation() // UNCOMMENT to test op mining - can remove when ops start flowing
 	for {
 		miner.mineBlock()
 	}
@@ -203,6 +204,9 @@ func (m *Miner) init() {
 	m.tokens = make(map[string]bool)
 	m.miners = make(map[string]*rpc.Client)
 	m.inkAccounts = make(map[string]uint32)
+	m.unminedOps = make(map[string]OperationRecord)
+	m.unvalidatedOps = make(map[string]OperationRecord)
+	m.validatedOps = make(map[string]OperationRecord)
 	m.inkAccounts[m.pubKeyString] = 0
 	if len(args) <= 1 {
 		logger.Fatalln("Missing keys, please generate with: go run generateKeys.go")
@@ -380,6 +384,7 @@ func (m *Miner) mineBlock() {
 			var block Block
 			// Will create a opBlock or noOpBlock depending upon whether unminedOps are waiting to be mined
 			if len(m.unminedOps) > 0 {
+				logger.Println("mining operation block")
 				var opRecordArray []OperationRecord
 				for _, opRecord := range m.unminedOps {
 					opRecordArray = append(opRecordArray, opRecord)
@@ -962,6 +967,17 @@ func (m *Miner) moveUnminedToUnvalidated(block *Block) {
 		delete(m.unminedOps, opRecord.OpSig)
 	}
 }
+
+// UNCOMMENT to test op mining - can remove once ops begin to flow
+
+// func (m *Miner) testAddOperation() {
+// 	shape := &Shape{PATH, "svgString", "fill", "stroke", m.pubKey, make([]Command, 1), make([]Point, 1), make([]LineSegment, 1), Point{0, 1}, Point{1, 0}}
+// 	op := &Operation{ADD, *shape, "shapehashstring", uint32(20), uint8(3)}
+// 	opRecord := &OperationRecord{*op, "some sig", "somekey"}
+// 	time.Sleep(time.Second * 5)
+// 	m.unminedOps[opRecord.OpSig] = *opRecord
+// 	return
+// }
 
 // </HELPER METHODS>
 ////////////////////////////////////////////////////////////////////////////////////////////

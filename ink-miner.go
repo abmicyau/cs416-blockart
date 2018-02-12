@@ -614,7 +614,7 @@ func (m *Miner) Hello(_ string, nonce *string) error {
 
 // Once a token is successfully retrieved, that nonce can no longer be used
 //
-func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) error {
+func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) (err error) {
 	nonce := request.Payload[0].(string)
 	r := new(big.Int)
 	s := new(big.Int)

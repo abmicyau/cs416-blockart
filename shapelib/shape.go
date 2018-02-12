@@ -95,16 +95,125 @@ func (s *Shape) IsValid(xMax uint32, yMax uint32) (valid bool, geometry ShapeGeo
 	return
 }
 
+// Extracts commands from provided SVG string
+func (s *Shape) getCommands() (commands []Command, err error) {
+	var _commands []Command
+
+	normSvg := normalizeSvgString(s.ShapeSvgString)
+	for {
+		_command := Command{}
+
+		re := regexp.MustCompile("(^.+?)([a-zA-Z])(.*)")
+		cmdString := strings.Trim(re.ReplaceAllString(normSvg, "$1"), " ")
+
+		pos := strings.Split(string(cmdString[1:]), ",")
+		posEmpty := len(pos) <= 1 && pos[0] == ""
+
+		cmdType := string(cmdString[0])
+		switch cmdType {
+		case "M", "m":
+			_command.CmdType = cmdType
+
+			if len(pos) < 2 || posEmpty {
+				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+			} else if s.Fill != "transparent" {
+				if commandExists(Command{CmdType: "M"}, _commands) || commandExists(Command{CmdType: "m"}, _commands) {
+					return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				}
+			}
+
+			_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+			_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
+		case "H":
+			_command.CmdType = "H"
+
+			if posEmpty {
+				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+			} else {
+				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+			}
+		case "V":
+			_command.CmdType = "V"
+
+			if posEmpty {
+				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+			} else {
+				_command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
+			}
+		case "L":
+			_command.CmdType = "L"
+
+			if len(pos) < 2 || posEmpty {
+				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+			} else {
+				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
+			}
+		case "h":
+			_command.CmdType = "h"
+
+			if posEmpty {
+				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+			} else {
+				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+			}
+		case "v":
+			_command.CmdType = "v"
+
+			if posEmpty {
+				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+			} else {
+				_command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
+			}
+		case "l":
+			_command.CmdType = "l"
+
+			if len(pos) < 2 || posEmpty {
+				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+			} else {
+				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
+			}
+		case "Z", "z":
+			_command.CmdType = cmdType
+		default:
+			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+		}
+
+		if err != nil {
+			break
+		}
+
+		if _command.CmdType != "" {
+			_commands = append(_commands, _command)
+		}
+
+		normSvg = strings.Replace(normSvg, cmdString, "", 1)
+		normSvg = strings.Trim(normSvg, " ")
+		if normSvg == "" {
+			break
+		}
+	}
+
+	if err == nil {
+		commands = _commands
+	}
+
+	return
+}
+
 // Gets the shape geometry of a a provided shape
 func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
-	commands, err := getCommands(s.ShapeSvgString)
+	commands, err := s.getCommands()
 	if err != nil {
 		return
 	}
 
 	geometry.ShapeSvgString, geometry.Fill = s.ShapeSvgString, s.Fill
-	geometry.Min, geometry.Max, geometry.Vertices = Point{}, Point{}, make([]Point, len(commands))
+	geometry.Min, geometry.Max = Point{}, Point{}
 	absPos, relPos := Point{0, 0}, Point{0, 0}
+
+	var currentVertices []Point
 	for i := range commands {
 		_command := commands[i]
 
@@ -113,35 +222,56 @@ func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 			absPos.X, absPos.Y = _command.X, _command.Y
 			relPos.X, relPos.Y = _command.X, _command.Y
 
-			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+			if len(currentVertices) > 0 {
+				geometry.VertexSets = append(geometry.VertexSets, currentVertices)
+				currentVertices = []Point{}
+			}
+
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+		case "m":
+			absPos.X, absPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+			relPos.X, relPos.Y = absPos.X, absPos.Y
+
+			if len(currentVertices) > 0 {
+				geometry.VertexSets = append(geometry.VertexSets, currentVertices)
+				currentVertices = []Point{}
+			}
+
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "H":
 			relPos.X = _command.X
 
-			geometry.Vertices[i] = Point{relPos.X, absPos.Y}
+			currentVertices = append(currentVertices, Point{relPos.X, absPos.Y})
 		case "V":
 			relPos.Y = _command.Y
 
-			geometry.Vertices[i] = Point{absPos.X, relPos.Y}
+			currentVertices = append(currentVertices, Point{absPos.X, relPos.Y})
 		case "L":
 			relPos.X, relPos.Y = _command.X, _command.Y
 
-			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "h":
 			relPos.X = relPos.X + _command.X
 
-			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "v":
 			relPos.Y = relPos.Y + _command.Y
 
-			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "l":
 			relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
 
-			geometry.Vertices[i] = Point{relPos.X, relPos.Y}
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "Z":
-			geometry.Vertices[i] = geometry.Vertices[0]
+			currentVertices = append(currentVertices, currentVertices[0])
+
+			geometry.VertexSets = append(geometry.VertexSets, currentVertices)
+			currentVertices = []Point{}
 		case "z":
-			geometry.Vertices[i] = geometry.Vertices[0]
+			currentVertices = append(currentVertices, currentVertices[0])
+
+			geometry.VertexSets = append(geometry.VertexSets, currentVertices)
+			currentVertices = []Point{}
 		}
 
 		if i == 0 {
@@ -162,13 +292,32 @@ func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 		}
 	}
 
-	// Make sure its closed
-	if s.Fill != "transparent" && geometry.Vertices[0] != geometry.Vertices[len(geometry.Vertices)-1] {
-		err = InvalidShapeSvgStringError(s.ShapeSvgString)
-		return
+	if len(currentVertices) > 0 {
+		geometry.VertexSets = append(geometry.VertexSets, currentVertices)
 	}
 
-	geometry.LineSegments = getLineSegments(geometry.Vertices)
+	// Make sure its closed
+	if s.Fill != "transparent" {
+		if len(geometry.VertexSets) > 1 {
+			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+		} else {
+			firstVertex := geometry.VertexSets[0][0]
+			lastVertex := geometry.VertexSets[0][len(geometry.VertexSets[0])-1]
+
+			if firstVertex != lastVertex {
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+			}
+		}
+
+		if err != nil {
+			return
+		}
+	}
+
+	geometry.LineSegmentSets = make([]LineSegmentSet, len(geometry.VertexSets))
+	for i, vSet := range geometry.VertexSets {
+		geometry.LineSegmentSets[i] = getLineSegments(vSet)
+	}
 
 	return
 }
@@ -177,19 +326,46 @@ type ShapeGeometry struct {
 	ShapeSvgString string
 	Fill           string
 
-	Vertices     []Point
-	LineSegments []LineSegment
-	Min          Point
-	Max          Point
+	// Vertices     []Point
+	// LineSegments []LineSegment
+	VertexSets      []VertexSet
+	LineSegmentSets []LineSegmentSet
+	Min             Point
+	Max             Point
+}
+
+type VertexSet []Point
+type LineSegmentSet []LineSegment
+
+func (s *ShapeGeometry) getAllLineSegments() (lineSegments []LineSegment) {
+	for _, _lineSegments := range s.LineSegmentSets {
+		for _, lineSegment := range _lineSegments {
+			lineSegments = append(lineSegments, lineSegment)
+		}
+	}
+
+	return
+}
+
+func (s *ShapeGeometry) getAllVertices() (vertices []Point) {
+	for _, _vertices := range s.VertexSets {
+		for _, vertex := range _vertices {
+			vertices = append(vertices, vertex)
+		}
+	}
+
+	return
 }
 
 // Computes the ink required for the given shape according
 // to the fill specification.
 func (s *ShapeGeometry) GetInkCost() (inkUnits uint64) {
 	if s.Fill == "transparent" {
-		inkUnits = computePerimeter(s.LineSegments)
+		for _, lineSegments := range s.LineSegmentSets {
+			inkUnits = inkUnits + computePerimeter(lineSegments)
+		}
 	} else {
-		inkUnits = computePixelArea(s.Min, s.Max, s.LineSegments)
+		inkUnits = computePixelArea(s.Min, s.Max, s.LineSegmentSets[0])
 	}
 
 	return
@@ -201,20 +377,20 @@ func (s *ShapeGeometry) GetInkCost() (inkUnits uint64) {
 func (s *ShapeGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 	valid = true
 
-	for _, vertex := range s.Vertices {
+	for _, vertex := range s.getAllVertices() {
 		if valid = vertex.inBound(xMax, yMax); !valid {
 			err = new(OutOfBoundsError)
-
 			return
 		}
 	}
 
 	if s.Fill != "transparent" {
-		for i := range s.LineSegments {
-			curSeg := s.LineSegments[i]
+		lineSegments := s.LineSegmentSets[0]
+		for i := range lineSegments {
+			curSeg := lineSegments[i]
 
-			for j := range s.LineSegments {
-				if i != j && curSeg.Intersects(s.LineSegments[j]) == true {
+			for j := range lineSegments {
+				if i != j && curSeg.Intersects(lineSegments[j]) == true {
 					valid = false
 					err = InvalidShapeSvgStringError(s.ShapeSvgString)
 
@@ -238,13 +414,53 @@ func (s *ShapeGeometry) HasOverlap(_s ShapeGeometry) bool {
 		return true
 	}
 
-	if intersectExists(s.LineSegments, _s.LineSegments) {
+	if intersectExists(s.getAllLineSegments(), _s.getAllLineSegments()) {
 		return true
-	} else if s.Fill != "transparent" && containsVertex(s.Min, s.Max, s.LineSegments, _s.Vertices) {
+	} else if s.Fill != "transparent" && s.containsVertex(_s.getAllVertices()) {
 		return true
 	} else {
 		return false
 	}
+}
+
+// Determines if any of the vertices are contained with a polygon, using a scanline.
+func (s *ShapeGeometry) containsVertex(vertices []Point) bool {
+	min := s.Min
+	max := s.Max
+	lineSegments := s.getAllLineSegments()
+
+	for y := min.Y; y <= max.Y; y++ {
+		var polyIntersects []Point
+		var vertexIntersects []Point
+
+		scanLine := getLineSegment(Point{min.X, y}, Point{max.X, y})
+
+		// Get all polygon intersects on this scanline
+		for _, l := range lineSegments {
+			if scanLine.IsColinear(l) {
+				polyIntersects = append(polyIntersects, l.Start, l.End)
+			} else {
+				hasIntersect := l.Intersects(scanLine)
+				intersect, err := l.GetIntersect(scanLine)
+				if hasIntersect && err == nil && !vertexExists(intersect, polyIntersects) {
+					polyIntersects = append(polyIntersects, intersect)
+				}
+			}
+		}
+
+		// Get all vertex intersects on this scanline
+		for _, v := range vertices {
+			if scanLine.HasPoint(v) {
+				vertexIntersects = append(vertexIntersects, v)
+			}
+		}
+
+		if len(vertexIntersects) > 0 && hasOddConfiguration(polyIntersects, vertexIntersects) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Represents a line segment with start and end points
@@ -354,122 +570,15 @@ func (l LineSegment) Intersects(_l LineSegment) bool {
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <FUNCTIONS>
 
-// Normalizes SVG string removing all spaces and adding commas
-func normalizeSvgString(svg string) (normSvg string) {
-	// Set commas between numbers
-	re := regexp.MustCompile("(-?\\d+)((\\s+|\\s?),(\\s+|\\s?)|(\\s+))(-?\\d+)")
-	normSvg = re.ReplaceAllString(svg, "$1,$6")
-
-	// Remove space between command and number
-	re = regexp.MustCompile("(\\s+|\\s?)([a-zA-Z])(\\s+|\\s?)")
-	normSvg = re.ReplaceAllString(normSvg, "$2")
-
-	return
-}
-
-// Extracts commands from provided SVG string
-func getCommands(svg string) (commands []Command, err error) {
-	var _commands []Command
-
-	normSvg := normalizeSvgString(svg)
-	for {
-		_command := Command{}
-
-		re := regexp.MustCompile("(^.+?)([a-zA-Z])(.*)")
-		cmdString := strings.Trim(re.ReplaceAllString(normSvg, "$1"), " ")
-
-		pos := strings.Split(string(cmdString[1:]), ",")
-		posEmpty := len(pos) <= 1 && pos[0] == ""
-
-		cmdType := string(cmdString[0])
-		switch cmdType {
-		case "M":
-			_command.CmdType = "M"
-
-			if len(pos) < 2 || posEmpty {
-				return nil, InvalidShapeSvgStringError(svg)
-			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
-			}
-		case "H":
-			_command.CmdType = "H"
-
-			if posEmpty {
-				return nil, InvalidShapeSvgStringError(svg)
-			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-			}
-		case "V":
-			_command.CmdType = "V"
-
-			if posEmpty {
-				return nil, InvalidShapeSvgStringError(svg)
-			} else {
-				_command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
-			}
-		case "L":
-			_command.CmdType = "L"
-
-			if len(pos) < 2 || posEmpty {
-				return nil, InvalidShapeSvgStringError(svg)
-			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
-			}
-		case "h":
-			_command.CmdType = "h"
-
-			if posEmpty {
-				return nil, InvalidShapeSvgStringError(svg)
-			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-			}
-		case "v":
-			_command.CmdType = "v"
-
-			if posEmpty {
-				return nil, InvalidShapeSvgStringError(svg)
-			} else {
-				_command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
-			}
-		case "l":
-			_command.CmdType = "l"
-
-			if len(pos) < 2 || posEmpty {
-				return nil, InvalidShapeSvgStringError(svg)
-			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
-			}
-		case "Z":
-			_command.CmdType = "Z"
-		case "z":
-			_command.CmdType = "z"
-		default:
-			err = InvalidShapeSvgStringError(svg)
-		}
-
-		if err != nil {
-			break
-		}
-
-		if _command.CmdType != "" {
-			_commands = append(_commands, _command)
-		}
-
-		normSvg = strings.Replace(normSvg, cmdString, "", 1)
-		normSvg = strings.Trim(normSvg, " ")
-		if normSvg == "" {
-			break
+// Determines if the given command exists in a set of commands
+func commandExists(c Command, commands []Command) bool {
+	for _, command := range commands {
+		if c.CmdType == command.CmdType {
+			return true
 		}
 	}
 
-	if err == nil {
-		commands = _commands
-	}
-
-	return
+	return false
 }
 
 // Determines if the given vertex exists in a set of vertices
@@ -481,6 +590,19 @@ func vertexExists(v Point, vertices []Point) bool {
 	}
 
 	return false
+}
+
+// Normalizes SVG string removing all spaces and adding commas
+func normalizeSvgString(svg string) (normSvg string) {
+	// Set commas between numbers
+	re := regexp.MustCompile("(-?\\d+)((\\s+|\\s?),(\\s+|\\s?)|(\\s+))(-?\\d+)")
+	normSvg = re.ReplaceAllString(svg, "$1,$6")
+
+	// Remove space between command and number
+	re = regexp.MustCompile("(\\s+|\\s?)([a-zA-Z])(\\s+|\\s?)")
+	normSvg = re.ReplaceAllString(normSvg, "$2")
+
+	return
 }
 
 // Determines if a line segment exists in a set of line segments
@@ -578,52 +700,10 @@ func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
 	return
 }
 
-// Determines if any of the vertices are contained with a polygon, using a scanline.
-func containsVertex(min Point, max Point, lineSegments []LineSegment, vertices []Point) bool {
-	for y := min.Y; y <= max.Y; y++ {
-		var polyIntersects []Point
-		var vertexIntersects []Point
-
-		scanLine := getLineSegment(Point{min.X, y}, Point{max.X, y})
-
-		// Get all polygon intersects on this scanline
-		for _, l := range lineSegments {
-			if scanLine.IsColinear(l) {
-				polyIntersects = append(polyIntersects, l.Start, l.End)
-			} else {
-				hasIntersect := l.Intersects(scanLine)
-				intersect, err := l.GetIntersect(scanLine)
-				if hasIntersect && err == nil && !vertexExists(intersect, polyIntersects) {
-					polyIntersects = append(polyIntersects, intersect)
-				}
-			}
-		}
-
-		// Get all vertex intersects on this scanline
-		for _, v := range vertices {
-			if scanLine.HasPoint(v) {
-				vertexIntersects = append(vertexIntersects, v)
-			}
-		}
-
-		if len(vertexIntersects) > 0 && hasOddConfiguration(polyIntersects, vertexIntersects) {
-			return true
-		}
-	}
-
-	return false
-}
-
 // Computes the total length of all segments
 func computePerimeter(lineSegments []LineSegment) (perimeter uint64) {
-	var computedSegments []LineSegment
-
 	for _, lineSegment := range lineSegments {
-		if !segmentExists(lineSegment, computedSegments) {
-			computedSegments = append(computedSegments, lineSegment)
-
-			perimeter = perimeter + lineSegment.Length()
-		}
+		perimeter = perimeter + lineSegment.Length()
 	}
 
 	return

@@ -966,7 +966,7 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 
 	response.Error = nil
 	response.Payload = make([]interface{}, 3)
-	response.Payload[0] = md5Hash([]byte(opSig))
+	response.Payload[0] = opSig
 	response.Payload[1] = ""
 	response.Payload[2] = m.inkAccounts[m.pubKeyString] - inkCost
 

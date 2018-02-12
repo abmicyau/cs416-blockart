@@ -126,7 +126,6 @@ type Block struct {
 type Operation struct {
 	Type        OpType
 	Shape       shapelib.Shape
-	ShapeHash   string
 	InkCost     uint32
 	ValidateNum uint8
 	TimeStamp   int64
@@ -944,18 +943,15 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		return
 	}
 
-	encodedShape, err := json.Marshal(shape)
-	checkError(err)
-	shapeHash := md5Hash(encodedShape)
-
 	op := Operation{
 		Type:        ADD,
 		Shape:       shape,
-		ShapeHash:   shapeHash,
 		InkCost:     inkCost,
-		ValidateNum: validateNum}
+		ValidateNum: validateNum,
+		TimeStamp:   time.Now().UnixNano()}
 
 	encodedOp, err := json.Marshal(op)
+	checkError(err)
 	_opSig := []byte(encodedOp)
 	_, _, err = ecdsa.Sign(rand.Reader, &m.privKey, _opSig)
 	checkError(err)
@@ -971,7 +967,7 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 
 	response.Error = nil
 	response.Payload = make([]interface{}, 3)
-	response.Payload[0] = shapeHash
+	response.Payload[0] = md5Hash(encodedOp)
 	response.Payload[1] = ""
 	response.Payload[2] = m.inkAccounts[m.pubKeyString] - inkCost
 

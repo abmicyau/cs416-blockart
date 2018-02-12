@@ -926,7 +926,6 @@ func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) er
 		response.Error = errorLib.InvalidBlockHashError(hash)
 		return nil
 	}
-	log.Println("Children: ", children)
 	response.Error = NO_ERROR
 	response.Payload = make([]interface{}, 1)
 	response.Payload[0] = children

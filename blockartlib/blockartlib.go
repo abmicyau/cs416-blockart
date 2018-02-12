@@ -11,7 +11,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"fmt"
-	"log"
 	"net/rpc"
 	"os"
 	"time"
@@ -38,25 +37,6 @@ const (
 	REMOVE
 )
 
-<<<<<<< HEAD
-=======
-// Represents error codes for requests to an ink miner
-type MinerResponseError int
-
-const (
-	NO_ERROR MinerResponseError = iota
-	INVALID_SIGNATURE
-	INVALID_TOKEN
-	INSUFFICIENT_INK
-	INVALID_SHAPE_SVG_STRING
-	SHAPE_SVG_STRING_TOO_LONG
-	SHAPE_OVERLAP
-	OUT_OF_BOUNDS
-	INVALID_SHAPE_HASH
-	INVALID_BLOCK_HASH
-)
-
->>>>>>> basic webserver stuff
 type MinerResponse struct {
 	Error   error
 	Payload []interface{}
@@ -282,17 +262,12 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 	// Request token and canvas settings from the miner
 	response := new(MinerResponse)
 	err = miner.Call("Miner.GetToken", request, response)
-<<<<<<< HEAD
 	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
 		err = DisconnectedError(minerAddr)
 		return
 	} else if response.Error != nil {
 		err = response.Error
 		return
-=======
-	if checkError(err) != nil || response.Error == INVALID_SIGNATURE {
-		return CanvasInstance{}, CanvasSettings{}, DisconnectedError(minerAddr)
->>>>>>> basic webserver stuff
 	}
 
 	token := response.Payload[0].(string)
@@ -541,7 +516,6 @@ func (c CanvasInstance) GetChildren(blockHash string) (blockHashes []string, err
 	}
 
 	blockHashes = response.Payload[0].([]string)
-	log.Println(blockHashes)
 	return blockHashes, nil
 }
 

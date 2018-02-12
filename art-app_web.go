@@ -28,18 +28,31 @@ type CanvasSets struct {
 	Y uint32 `json:"Y"`
 }
 
+type BlockJson struct {
+	BlockHash string   `json: "BlockHash"`
+	Shapes    []string `json: Shapes`
+}
+
+type LongestChainJson struct {
+	Blocks []BlockJson `json: "Blocks"`
+}
+
 var canvasSets CanvasSets
 var canvasGlobal blockartlib.Canvas
 
 func main() {
-	minerAddr := "127.0.0.1:37005"
+	// TO USE ME
 	webserverAddr := "127.0.0.1:8080"
 
 	args := os.Args[1:]
-	//minerAddr := args[0]
+
+	if len(args) != 2 {
+		log.Fatalln("Missing args, Usage: go run art-app_web.go [inkMiner privKey] [inkMiner addr]")
+	}
+	minerAddr := args[1]
 
 	// Proper Key Generate
-	privBytes, _ := hex.DecodeString(args[1])
+	privBytes, _ := hex.DecodeString(args[0])
 	//pubBytes, _ := hex.DecodeString(args[2])
 	privKey, err := x509.ParseECPrivateKey(privBytes)
 	if checkError(err) != nil {
@@ -104,26 +117,54 @@ func CanvasHandler(w http.ResponseWriter, r *http.Request) {
 
 func BlocksHandler(w http.ResponseWriter, r *http.Request) {
 	genHash, _ := canvasGlobal.GetGenesisBlock()
-	allBlockHashes := getChildren(genHash)
-	log.Println(allBlockHashes)
+	blockHashes, lengthOfChain := getChildren(genHash)
+	log.Println("AllBlockHashes: ", blockHashes)
+	log.Println("length of longestChain: ", lengthOfChain)
+
+	LongestChainJson := *new(LongestChainJson)
+	LongestChainJson.Blocks = make([]BlockJson, lengthOfChain)
+
+	for iBlock, blockHash := range blockHashes {
+		shapeHashes, _ := canvasGlobal.GetShapes(blockHash)
+
+		LongestChainJson.Blocks[iBlock].BlockHash = blockHash
+		LongestChainJson.Blocks[iBlock].Shapes = make([]string, len(shapeHashes))
+
+		for iShape, shapeHash := range shapeHashes {
+			svgString, _ := canvasGlobal.GetSvgString(shapeHash)
+			if len(svgString) > 0 {
+				LongestChainJson.Blocks[iBlock].Shapes[iShape] = svgString
+			}
+		}
+		// Testing path
+		//LongestChainJson.Blocks[iBlock].Shapes = append(LongestChainJson.Blocks[iBlock].Shapes, `<path stroke="#f00" stroke-width="3" d=" M 50,50 L 100 100"/>`)
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	json.NewEncoder(w).Encode(canvasSets)
+	json.NewEncoder(w).Encode(LongestChainJson)
 }
 
-func getChildren(genHash string) []string {
+// Recursive function to get all the branch chains from Genesis block
+func getChildren(genHash string) ([]string, int) {
 	hashes, _ := canvasGlobal.GetChildren(genHash)
 	if len(hashes) == 0 {
 		var hashArray []string
 		hashArray = append(hashArray, genHash)
-		return hashArray
+		return hashArray, 1
 	}
 	var hashArrayForloop []string
+	var currLongestLength int
+	var currLongestChain []string
 	for _, hash := range hashes {
-		childArray := getChildren(hash)
-		hashArrayForloop = append(hashArrayForloop, childArray...)
+		childArray, lenChildArray := getChildren(hash)
+		if lenChildArray > currLongestLength {
+			currLongestLength = lenChildArray
+			currLongestChain = childArray
+		}
 	}
-	return hashArrayForloop
-
+	hashArrayForloop = append(hashArrayForloop, genHash)
+	hashArrayForloop = append(hashArrayForloop, currLongestChain...)
+	return hashArrayForloop, currLongestLength + 1
 }
 
 // If error is non-nil, print it out and return it.

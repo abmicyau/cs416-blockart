@@ -377,13 +377,17 @@ func (c CanvasInstance) DeleteShape(validateNum uint8, shapeHash string) (inkRem
 	request.Payload[0] = shapeHash
 	request.Payload[1] = validateNum
 	err = c.Miner.Call("Miner.DeleteShape", request, response)
-	if checkError(err) != nil || response.Error == INVALID_TOKEN {
-		return 0, DisconnectedError(c.MinerAddr)
-	} else if response.Error = INVALID_SHAPE_HASH {
-		return 0, ShapeOwnerError(shapeHash)
+	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+		err = DisconnectedError(c.MinerAddr)
+		return
+	} else if errorLib.IsType(response.Error, "ShapeOwnerError") {
+		err = ShapeOwnerError(shapeHash)
+		return
 	}
 
-	inkRemaining = response.Payload[0].(uint32)
+	//TODO: Need a polling mechanism to check when validateNum is complete, which
+	// will return the inkRemaining for priv/public key pair
+
 	return inkRemaining, nil
 }
 

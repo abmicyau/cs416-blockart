@@ -11,6 +11,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"fmt"
+	"log"
 	"net/rpc"
 	"os"
 	"time"
@@ -295,7 +296,9 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 	}
 
 	token := response.Payload[0].(string)
-	setting = response.Payload[1].(CanvasSettings)
+	settingX := response.Payload[1].(uint32)
+	settingY := response.Payload[2].(uint32)
+	setting = CanvasSettings{CanvasXMax: settingX, CanvasYMax: settingY}
 	canvas = CanvasInstance{minerAddr, miner, token}
 
 	return canvas, setting, nil
@@ -538,7 +541,7 @@ func (c CanvasInstance) GetChildren(blockHash string) (blockHashes []string, err
 	}
 
 	blockHashes = response.Payload[0].([]string)
-
+	log.Println(blockHashes)
 	return blockHashes, nil
 }
 

@@ -702,14 +702,8 @@ func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
 
 // Computes the total length of all segments
 func computePerimeter(lineSegments []LineSegment) (perimeter uint64) {
-	var computedSegments []LineSegment
-
 	for _, lineSegment := range lineSegments {
-		if !segmentExists(lineSegment, computedSegments) {
-			computedSegments = append(computedSegments, lineSegment)
-
-			perimeter = perimeter + lineSegment.Length()
-		}
+		perimeter = perimeter + lineSegment.Length()
 	}
 
 	return

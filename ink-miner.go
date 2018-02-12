@@ -622,8 +622,8 @@ func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) error
 	s, s_ok := s.SetString(request.Payload[2].(string), 0)
 
 	if !r_ok || !s_ok {
-		response.Error = nil
-		return nil
+		response.Error = new(errorLib.InvalidSignatureError)
+		return
 	}
 
 	_, validNonce := m.nonces[nonce]

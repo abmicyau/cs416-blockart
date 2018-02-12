@@ -346,12 +346,13 @@ func (m *Miner) getLongestChain() {
 				isOpValid := true
 				for j := 0; j < len(opRecs); j++ {
 					// check if each operation is a valid shape
-					err := m.validateNewShape(opRecs[j].Op.Shape)
+					_, err := m.validateNewShape(opRecs[j].Op.Shape)
 					if err != nil {
 						// If error break and set flag
 						isOpValid = false
 						break
 					}
+					m.validatedOps[opRecs[j].OpSig] = &opRecs[j]
 				}
 
 				var myHash string
@@ -362,13 +363,13 @@ func (m *Miner) getLongestChain() {
 				}
 				// If an operation of a block was invalid or the blockHash is invalid, the block is invalid.
 				// Set flag, keep track of how long the chain was before invalid, and break.
-				if !isOpValid && !m.validateBlock(block, myHash) {
+				if !isOpValid && !m.validateBlock(&block, myHash) {
 					isBlockValid = false
 					chainlength = i
 					break
 				}
 				// else op is valid, apply the block to simulate
-				m.applyBlock(&block)
+				m.applyBlockInk(&block)
 				m.blockchain[myHash] = &block
 			}
 			// Chain is not valid all the way through
@@ -378,11 +379,13 @@ func (m *Miner) getLongestChain() {
 				longestHash = longestChain[len(longestChain)-chainlength-1].PrevHash
 				longestChain = longestChain[len(longestChain)-chainlength:]
 			}
+
 			// Revert states
 			for _, block := range longestChain {
-				m.revertBlock(&block)
 				delete(m.blockchain, block.PrevHash)
 			}
+			m.validatedOps = make(map[string]*OperationRecord)
+			m.inkAccounts = make(map[string]uint32)
 			delete(m.blockchain, longestHash)
 
 			// Set tracker if we have a new VALID longestChain & hash
@@ -401,16 +404,22 @@ func (m *Miner) getLongestChain() {
 		currHash := longestBlockHash
 		for i := 0; i < len(longestBlockChain); i++ {
 			// Should be from Latest block to Earliest/Genesis
-			// Assumption is that the chain was validated earlier ^, just need to apply the blocks now
+			// Assumptions:
+			//	-is that the chain was validated earlier ^, just need to apply the blocks and ops now
+			//  -don't need to worry about valid and unvalid ops, new miner
 			block := &longestBlockChain[i]
-			m.applyBlock(block)
+			m.applyBlockInk(block)
 			m.blockchain[currHash] = block
 			m.addBlockChild(block, currHash)
+			for _, opRec := range block.Records {
+				m.validatedOps[opRec.OpSig] = &opRec
+			}
 			currHash = longestBlockChain[i].PrevHash
 		}
 		m.longestChainLastBlockHash = longestBlockHash
 		logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
 	}
+	m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKeyString, 0}
 
 }
 
@@ -830,6 +839,8 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 		newChainLength := m.lengthLongestChain(blockHash)
 		oldChainLength := m.lengthLongestChain(m.longestChainLastBlockHash)
 		logger.Println(newChainLength, oldChainLength)
+		logger.Println("Block hash: ", blockHash)
+		logger.Println("Longest Chain hash: ", m.longestChainLastBlockHash)
 		if newChainLength > oldChainLength {
 			if oldChainLength == 0 {
 				m.changeBlockchainHead(m.settings.GenesisBlockHash, blockHash)

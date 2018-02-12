@@ -129,6 +129,7 @@ type Operation struct {
 	ShapeHash   string
 	InkCost     uint32
 	ValidateNum uint8
+    TimeStamp   int64
 }
 
 type OperationRecord struct {

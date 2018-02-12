@@ -840,7 +840,7 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		return
 	}
 
-	//validateNum := request.Payload[0].(uint8)
+	validateNum := request.Payload[0].(uint8)
 	shapeType := request.Payload[1].(shapelib.ShapeType)
 	shapeSvgString := request.Payload[2].(string)
 	fill := strings.Trim(request.Payload[3].(string), " ")
@@ -854,9 +854,39 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		Owner:          m.pubKeyString}
 
 	inkCost, err := m.validateNewShape(shape)
-	response.Error = err
+	if err != nil {
+		response.Error = err
+		return
+	}
+
+	encodedShape, err := json.Marshal(shape)
+	checkError(err)
+	shapeHash := md5Hash(encodedShape)
+
+	op := Operation{
+		Type:        ADD,
+		Shape:       shape,
+		ShapeHash:   shapeHash,
+		InkCost:     inkCost,
+		ValidateNum: validateNum}
+
+	encodedOp, err := json.Marshal(op)
+	_opSig := []byte(encodedOp)
+	_, _, err = ecdsa.Sign(rand.Reader, &m.privKey, _opSig)
+	checkError(err)
+	opSig := string(_opSig)
+
+	opRecord := OperationRecord{
+		Op:           op,
+		OpSig:        opSig,
+		PubKeyString: m.pubKeyString}
+
+	m.unminedOps[opSig] = opRecord
+	m.unvalidatedOps[opSig] = opRecord
+
+	response.Error = nil
 	response.Payload = make([]interface{}, 3)
-	response.Payload[0] = ""
+	response.Payload[0] = shapeHash
 	response.Payload[1] = ""
 	response.Payload[2] = m.inkAccounts[m.pubKeyString] - inkCost
 

@@ -258,7 +258,7 @@ func (m *Miner) listenRPC() {
 		for {
 			conn, err := listener.Accept()
 			checkError(err)
-			logger.Println("New connection from " + conn.RemoteAddr().String())
+			logger.Println("New connection!")
 			go rpc.ServeConn(conn)
 		}
 	}()
@@ -317,6 +317,11 @@ func (m *Miner) connectToMiners(addrs []net.Addr) {
 				delete(m.miners, minerAddr.String())
 			} else {
 				m.miners[minerAddr.String()] = minerConn
+				response := new(MinerResponse)
+				request := new(MinerRequest)
+				request.Payload = make([]interface{}, 1)
+				request.Payload[0] = m.localAddr.String()
+				minerConn.Call("Miner.BidirectionalSetup", request, response)
 			}
 		}
 	}
@@ -372,8 +377,7 @@ func (m *Miner) mineBlock() {
 		select {
 		case <-m.newLongestChain:
 			logger.Println("Got a new longest chain, switching to: ", m.longestChainLastBlockHash)
-			prevHash = m.longestChainLastBlockHash
-			blockNo = m.blockchain[prevHash].BlockNo + 1
+			return
 		default:
 			var block Block
 			// Will create a opBlock or noOpBlock depending upon whether unminedOps are waiting to be mined
@@ -720,6 +724,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 		// compute longest chain
 		newChainLength := m.lengthLongestChain(blockHash)
 		oldChainLength := m.lengthLongestChain(m.longestChainLastBlockHash)
+		logger.Println(newChainLength, oldChainLength)
 		if newChainLength > oldChainLength {
 			if oldChainLength == 0 {
 				m.switchBranches(m.settings.GenesisBlockHash, blockHash)
@@ -758,6 +763,18 @@ func (m *Miner) SendOp(request *MinerRequest, response *MinerResponse) error {
 // If a connected miner fails to reply, that miner should be removed from the map
 func (m *Miner) PingMiner(payload string, reply *bool) error {
 	*reply = true
+	return nil
+}
+
+func (m *Miner) BidirectionalSetup(request *MinerRequest, response *MinerResponse) error {
+	minerAddr := request.Payload[0].(string)
+	minerConn, err := rpc.Dial("tcp", minerAddr)
+	if err != nil {
+		delete(m.miners, minerAddr)
+	} else {
+		m.miners[minerAddr] = minerConn
+		logger.Println("birectional setup complete")
+	}
 	return nil
 }
 
@@ -935,8 +952,9 @@ func (m *Miner) lengthLongestChain(blockhash string) int {
 		prevBlockHash := m.blockchain[currhash].PrevHash
 		if _, exists := m.blockchain[prevBlockHash]; exists {
 			currhash = prevBlockHash
-		} else if prevBlockHash == m.settings.GenesisBlockHash {
-			break
+			if currhash == m.settings.GenesisBlockHash {
+				return length
+			}
 		} else {
 			// Case where the last block in this chain isn't the Genesis one
 			return 0

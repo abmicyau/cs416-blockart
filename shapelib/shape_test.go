@@ -18,7 +18,8 @@ func TestNormalizeSvgString(t *testing.T) {
 
 // Test command parsing
 func TestGetCommands(t *testing.T) {
-	commands, _ := getCommands("M 10 10 L 5 5 h -3 Z")
+	shape := Shape{ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
+	commands, _ := shape.getCommands()
 	commandsExpected := []Command{
 		Command{"M", 10, 10},
 		Command{"L", 5, 5},
@@ -79,7 +80,7 @@ func TestGetVertices(t *testing.T) {
 	geoClosed, _ := shapeClosed.GetGeometry()
 	geoOpen, _ := shapeOpen.GetGeometry()
 
-	vertices := geoClosed.Vertices
+	vertices := geoClosed.VertexSets[0]
 	verticesExpected := []Point{
 		Point{10, 10},
 		Point{13, 10},
@@ -98,7 +99,7 @@ func TestGetVertices(t *testing.T) {
 		}
 	}
 
-	vertices = geoOpen.Vertices
+	vertices = geoOpen.VertexSets[0]
 	verticesExpected = []Point{
 		Point{10, 10},
 		Point{13, 10},
@@ -124,7 +125,7 @@ func TestGetLineSegments(t *testing.T) {
 	geoClosed, _ := shapeClosed.GetGeometry()
 	geoOpen, _ := shapeOpen.GetGeometry()
 
-	lineSegments := getLineSegments(geoClosed.Vertices)
+	lineSegments := getLineSegments(geoClosed.VertexSets[0])
 	lineSegmentsExpected := []LineSegment{
 		LineSegment{Start: Point{10, 10}, End: Point{13, 10}, A: 0, B: -3, C: -30},
 		LineSegment{Start: Point{13, 10}, End: Point{12, 13}, A: 3, B: 1, C: 49},
@@ -154,7 +155,7 @@ func TestGetLineSegments(t *testing.T) {
 		}
 	}
 
-	lineSegments = getLineSegments(geoOpen.Vertices)
+	lineSegments = getLineSegments(geoOpen.VertexSets[0])
 	lineSegmentsExpected = []LineSegment{
 		LineSegment{Start: Point{10, 10}, End: Point{13, 10}, A: 0, B: -3, C: -30},
 		LineSegment{Start: Point{13, 10}, End: Point{12, 13}, A: 3, B: 1, C: 49}}
@@ -193,9 +194,9 @@ func TestLineOverlap(t *testing.T) {
 	geo2, _ := shape2.GetGeometry()
 	geo3, _ := shape3.GetGeometry()
 
-	lineSegments1 := getLineSegments(geo1.Vertices)
-	lineSegments2 := getLineSegments(geo2.Vertices)
-	lineSegments3 := getLineSegments(geo3.Vertices)
+	lineSegments1 := getLineSegments(geo1.VertexSets[0])
+	lineSegments2 := getLineSegments(geo2.VertexSets[0])
+	lineSegments3 := getLineSegments(geo3.VertexSets[0])
 
 	// Test parallel lines
 	if lineSegments1[0].Intersects(lineSegments2[0]) != true {

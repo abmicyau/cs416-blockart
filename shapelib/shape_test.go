@@ -18,7 +18,8 @@ func TestNormalizeSvgString(t *testing.T) {
 
 // Test command parsing
 func TestGetCommands(t *testing.T) {
-	commands, _ := getCommands("M 10 10 L 5 5 h -3 Z")
+	shape := Shape{ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
+	commands, _ := shape.getCommands()
 	commandsExpected := []Command{
 		Command{"M", 10, 10},
 		Command{"L", 5, 5},
@@ -46,17 +47,23 @@ func TestGetCommands(t *testing.T) {
 // Test get geometry
 func TestGetGeometry(t *testing.T) {
 	shapeTransClosed := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
-	shapeTransOpen := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
+	shapeTransOpen1 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
+	shapeTransOpen2 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 M 10 10 h 3 l -1 3"}
 	shapeFilledClosed1 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
 	shapeFilledClosed2 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 L 10 10"}
+	shapeFilledClosed3 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 L 10 10 Z m 10 10 h 3 l -1 3 L 10 10 Z"}
 	shapeFilledOpen := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
 
 	if _, err := shapeTransClosed.GetGeometry(); err != nil {
 		t.Error("Expected no error for transparent closed shape, got: ", err)
 	}
 
-	if _, err := shapeTransOpen.GetGeometry(); err != nil {
+	if _, err := shapeTransOpen1.GetGeometry(); err != nil {
 		t.Error("Expected no error for transparent open shape, got: ", err)
+	}
+
+	if _, err := shapeTransOpen2.GetGeometry(); err != nil {
+		t.Error("Expected no error for transparent open shape with multiple 'moveto', got: ", err)
 	}
 
 	if _, err := shapeFilledClosed1.GetGeometry(); err != nil {
@@ -65,6 +72,10 @@ func TestGetGeometry(t *testing.T) {
 
 	if _, err := shapeFilledClosed2.GetGeometry(); err != nil {
 		t.Error("Expected no error for filled close shape, got: ", err)
+	}
+
+	if _, err := shapeFilledClosed3.GetGeometry(); err == nil {
+		t.Error("Expected error for filled closed shape with multiple 'moveto', but got none.")
 	}
 
 	if _, err := shapeFilledOpen.GetGeometry(); err == nil {
@@ -79,7 +90,7 @@ func TestGetVertices(t *testing.T) {
 	geoClosed, _ := shapeClosed.GetGeometry()
 	geoOpen, _ := shapeOpen.GetGeometry()
 
-	vertices := geoClosed.Vertices
+	vertices := geoClosed.VertexSets[0]
 	verticesExpected := []Point{
 		Point{10, 10},
 		Point{13, 10},
@@ -98,7 +109,7 @@ func TestGetVertices(t *testing.T) {
 		}
 	}
 
-	vertices = geoOpen.Vertices
+	vertices = geoOpen.VertexSets[0]
 	verticesExpected = []Point{
 		Point{10, 10},
 		Point{13, 10},
@@ -124,7 +135,7 @@ func TestGetLineSegments(t *testing.T) {
 	geoClosed, _ := shapeClosed.GetGeometry()
 	geoOpen, _ := shapeOpen.GetGeometry()
 
-	lineSegments := getLineSegments(geoClosed.Vertices)
+	lineSegments := getLineSegments(geoClosed.VertexSets[0])
 	lineSegmentsExpected := []LineSegment{
 		LineSegment{Start: Point{10, 10}, End: Point{13, 10}, A: 0, B: -3, C: -30},
 		LineSegment{Start: Point{13, 10}, End: Point{12, 13}, A: 3, B: 1, C: 49},
@@ -154,7 +165,7 @@ func TestGetLineSegments(t *testing.T) {
 		}
 	}
 
-	lineSegments = getLineSegments(geoOpen.Vertices)
+	lineSegments = getLineSegments(geoOpen.VertexSets[0])
 	lineSegmentsExpected = []LineSegment{
 		LineSegment{Start: Point{10, 10}, End: Point{13, 10}, A: 0, B: -3, C: -30},
 		LineSegment{Start: Point{13, 10}, End: Point{12, 13}, A: 3, B: 1, C: 49}}
@@ -193,9 +204,9 @@ func TestLineOverlap(t *testing.T) {
 	geo2, _ := shape2.GetGeometry()
 	geo3, _ := shape3.GetGeometry()
 
-	lineSegments1 := getLineSegments(geo1.Vertices)
-	lineSegments2 := getLineSegments(geo2.Vertices)
-	lineSegments3 := getLineSegments(geo3.Vertices)
+	lineSegments1 := getLineSegments(geo1.VertexSets[0])
+	lineSegments2 := getLineSegments(geo2.VertexSets[0])
+	lineSegments3 := getLineSegments(geo3.VertexSets[0])
 
 	// Test parallel lines
 	if lineSegments1[0].Intersects(lineSegments2[0]) != true {
@@ -259,18 +270,20 @@ func TestShapeValid(t *testing.T) {
 
 // Test ink usage
 func TestInkRequired(t *testing.T) {
-	shape1 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5 "}                               // Line
+	shape1 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5"}                                // Line
 	shape2 := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}                  // Twisted Square
 	shape3 := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}                     // Square
 	shape4 := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                       // Triangle
 	shape5 := Shape{Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}     // Dracula teeth
 	shape6 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth
+	shape7 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 l 5 5 M 20 20 l 5 5"}                  // Muliple moveto
 	geo1, _ := shape1.GetGeometry()
 	geo2, _ := shape2.GetGeometry()
 	geo3, _ := shape3.GetGeometry()
 	geo4, _ := shape4.GetGeometry()
 	geo5, _ := shape5.GetGeometry()
 	geo6, _ := shape6.GetGeometry()
+	geo7, _ := shape7.GetGeometry()
 
 	if ink := geo1.GetInkCost(); ink != 8 {
 		t.Error("Expected 8 ink units, got", strconv.FormatUint(ink, 10))
@@ -295,6 +308,10 @@ func TestInkRequired(t *testing.T) {
 
 	if ink := geo6.GetInkCost(); ink != 156 {
 		t.Error("Expected 156 ink units, got", strconv.FormatUint(ink, 10))
+	}
+
+	if ink := geo7.GetInkCost(); ink != 16 {
+		t.Error("Expected 8 ink units, got", strconv.FormatUint(ink, 10))
 	}
 }
 
@@ -325,13 +342,17 @@ func TestOverlap(t *testing.T) {
 	// Test basic intersection
 	shapeTrans := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z"}
 	shapeFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z"}
+	shapeMulti := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z M 5 5 v -3 h 10 v -5 Z"}
 	geoTrans, _ := shapeTrans.GetGeometry()
 	geoFilled, _ := shapeFilled.GetGeometry()
+	geoMulti, _ := shapeMulti.GetGeometry()
 
 	overlap := geoTriangle.HasOverlap(geoTrans)
 	overlap = geoTriangleFilled.HasOverlap(geoTrans)
 	overlap = geoTriangle.HasOverlap(geoFilled)
 	overlap = geoTriangleFilled.HasOverlap(geoFilled)
+	overlap = geoTriangle.HasOverlap(geoMulti)
+	overlap = geoTriangleFilled.HasOverlap(geoMulti)
 
 	if overlap != true {
 		t.Error("Expected overlap, got no overlap.")

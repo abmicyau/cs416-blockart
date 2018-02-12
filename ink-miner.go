@@ -223,7 +223,7 @@ func (m *Miner) init() {
 		log.Fatalln("Error with Private Key")
 	}
 
-	pubKey := m.decodeStringPubKey(args[1])
+	pubKey := decodeStringPubKey(args[1])
 	// pubKey, err := x509.ParsePKIXPublicKey(pubBytes)
 	// if checkError(err) != nil {
 	// 	log.Fatalln("Error with Public Key")
@@ -289,15 +289,6 @@ func (m *Miner) startHeartBeats() {
 		time.Sleep(time.Duration(m.settings.HeartBeat-TIME_BUFFER) * time.Millisecond)
 		m.serverConn.Call("RServer.HeartBeat", m.pubKey, &ignored)
 	}
-}
-
-func (m *Miner) decodeStringPubKey(pubkey string) *ecdsa.PublicKey {
-	pubBytes, _ := hex.DecodeString(pubkey)
-	pubKey, err := x509.ParsePKIXPublicKey(pubBytes)
-	if checkError(err) != nil {
-		log.Fatalln("Error with Public Key")
-	}
-	return pubKey.(*ecdsa.PublicKey)
 }
 
 // Gets miners from server if below MinNumMinerConnections
@@ -589,29 +580,61 @@ func (m *Miner) validateNewShape(s shapelib.Shape) (err error) {
 	return
 }
 
-// </PRIVATE METHODS : MINER>
-////////////////////////////////////////////////////////////////////////////////////////////
+func (m *Miner) blockSuccessfullyMined(block *Block) bool {
+    encodedBlock, err := json.Marshal(*block)
+    checkError(err)
+    blockHash := md5Hash(encodedBlock)
+    if m.hashMatchesPOWDifficulty(blockHash) {
+        logger.Println("Found a new Block!: ", block, blockHash)
+        m.blockchain[blockHash] = block
+        m.addBlockChild(block, blockHash)
+        logger.Println("Current BlockChainMap: ", m.blockchain)
+        m.longestChainLastBlockHash = blockHash
+        m.applyBlock(block)
+        m.disseminateToConnectedMiners(*block, blockHash)
+        m.moveUnminedToUnvalidated(block)
+        return true
+    } else {
+        return false
+    }
+}
 
-//
+// Asserts that block hash matches the intended POW difficulty
+func (m *Miner) hashMatchesPOWDifficulty(blockhash string) bool {
+    return strings.HasSuffix(blockhash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock)))
+}
+
+func (m *Miner) moveUnminedToUnvalidated(block *Block) {
+    for _, opRecord := range block.Records {
+        m.unvalidatedOps[opRecord.OpSig] = opRecord
+        delete(m.unminedOps, opRecord.OpSig)
+    }
+}
 
 // Sends block to all connected miners
 // Makes sure that enough miners are connected; if under minimum, it calls for more
 func (m *Miner) disseminateOpToConnectedMiners(opRec OperationRecord) {
-	m.getMiners() // checks all miners, connects to more if needed
-	request := new(MinerRequest)
-	request.Payload = make([]interface{}, 1)
-	request.Payload[0] = opRec
-	response := new(MinerResponse)
-	for minerAddr, minerCon := range m.miners {
-		isConnected := false
-		minerCon.Call("Miner.PingMiner", "", &isConnected)
-		if isConnected {
-			minerCon.Call("Miner.SendOp", request, response)
-		} else {
-			delete(m.miners, minerAddr)
-		}
-	}
+    m.getMiners() // checks all miners, connects to more if needed
+    request := new(MinerRequest)
+    request.Payload = make([]interface{}, 1)
+    request.Payload[0] = opRec
+    response := new(MinerResponse)
+    for minerAddr, minerCon := range m.miners {
+        isConnected := false
+        minerCon.Call("Miner.PingMiner", "", &isConnected)
+        if isConnected {
+            minerCon.Call("Miner.SendOp", request, response)
+        } else {
+            delete(m.miners, minerAddr)
+        }
+    }
 }
+
+
+// </PRIVATE METHODS : MINER>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+//
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <RPC METHODS>
@@ -965,6 +988,15 @@ func generateNewKeys() ecdsa.PrivateKey {
 	return *privKey
 }
 
+func decodeStringPubKey(pubkey string) *ecdsa.PublicKey {
+    pubBytes, _ := hex.DecodeString(pubkey)
+    pubKey, err := x509.ParsePKIXPublicKey(pubBytes)
+    if checkError(err) != nil {
+        log.Fatalln("Error with Public Key")
+    }
+    return pubKey.(*ecdsa.PublicKey)
+}
+
 // Generates a secure 256-bit nonce/token string for
 // artnode request authentication.
 //
@@ -978,43 +1010,12 @@ func getRand256() string {
 	return string(str)
 }
 
-func (m *Miner) blockSuccessfullyMined(block *Block) bool {
-	encodedBlock, err := json.Marshal(*block)
-	checkError(err)
-	blockHash := md5Hash(encodedBlock)
-	if m.hashMatchesPOWDifficulty(blockHash) {
-		logger.Println("Found a new Block!: ", block, blockHash)
-		m.blockchain[blockHash] = block
-		m.addBlockChild(block, blockHash)
-		logger.Println("Current BlockChainMap: ", m.blockchain)
-		m.longestChainLastBlockHash = blockHash
-		m.applyBlock(block)
-		m.disseminateToConnectedMiners(*block, blockHash)
-		m.moveUnminedToUnvalidated(block)
-		return true
-	} else {
-		return false
-	}
-}
-
 // Computes the md5 hash of a given byte slice
 func md5Hash(data []byte) string {
 	h := md5.New()
 	h.Write(data)
 	str := hex.EncodeToString(h.Sum(nil))
 	return str
-}
-
-// Asserts that block hash matches the intended POW difficulty
-func (m *Miner) hashMatchesPOWDifficulty(blockhash string) bool {
-	return strings.HasSuffix(blockhash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock)))
-}
-
-func (m *Miner) moveUnminedToUnvalidated(block *Block) {
-	for _, opRecord := range block.Records {
-		m.unvalidatedOps[opRecord.OpSig] = opRecord
-		delete(m.unminedOps, opRecord.OpSig)
-	}
 }
 
 // UNCOMMENT to test op mining - can remove once ops begin to flow

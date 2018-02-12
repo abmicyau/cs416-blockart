@@ -963,7 +963,6 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		PubKeyString: m.pubKeyString}
 
 	m.unminedOps[opSig] = &opRecord
-	m.unvalidatedOps[opSig] = &opRecord
 
 	response.Error = nil
 	response.Payload = make([]interface{}, 3)

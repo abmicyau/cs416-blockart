@@ -129,7 +129,7 @@ type Operation struct {
 	ShapeHash   string
 	InkCost     uint32
 	ValidateNum uint8
-    TimeStamp   int64
+	TimeStamp   int64
 }
 
 type OperationRecord struct {
@@ -311,26 +311,99 @@ func (m *Miner) connectToMiners(addrs []net.Addr) {
 	}
 }
 
+// When a new miner joins the network, it'll ask all the neighbouring miners for their longest chain
+// After retrieving the chain, it'll use one of them as it's starting chain
+// This method will do the following:
+//	After returning with a chain
+// 	- Validate the shape with existing miner states (ink, exisiting shapes)
+//	- Apply the Block's state to the miner to validate future blocks
+// 	- Revert the blocks to earse the memory
+
+// After the checks, it'll keep the current longest valid chain
+// The new miner will then apply the blocks again and start mining from the end of that chain
+
 func (m *Miner) getLongestChain() {
-	//longestChainAndLength := new(ChainAndLength)
-	response := new(MinerResponse)
 	request := new(MinerRequest)
+	var currLongestHash string
+	var currLongestChain []Block
+
+	// Create a dummy block as the genesis block
+	m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKeyString, 0}
+
 	for _, minerCon := range m.miners {
 		singleResponse := new(MinerResponse)
 		minerCon.Call("Miner.GetBlockChain", request, singleResponse)
-		if len(response.Payload) < 1 {
-			response = singleResponse
-		} else if len(singleResponse.Payload[1].([]Block)) > len(response.Payload[1].([]Block)) {
-			response = singleResponse
+		if len(singleResponse.Payload) > 1 {
+			longestHash := singleResponse.Payload[0].(string)
+			longestChain := singleResponse.Payload[1].([]Block)
+			isBlockValid := true
+			var chainlength int
+			for i := len(longestChain) - 1; i >= 0; i-- {
+				// Should be Genesis Block at longestChain[len(longestChain) -1 ]
+				// And last added block at index 0
+				block := longestChain[i]
+				opRecs := block.Records
+				isOpValid := true
+				for j := 0; j < len(opRecs); j++ {
+					// check if each operation is a valid shape
+					err := m.validateNewShape(opRecs[j].Op.Shape)
+					if err != nil {
+						// If error break and set flag
+						isOpValid = false
+						break
+					}
+				}
+
+				var myHash string
+				if i == 0 {
+					myHash = longestHash
+				} else {
+					myHash = longestChain[i-1].PrevHash
+				}
+				// If an operation of a block was invalid or the blockHash is invalid, the block is invalid.
+				// Set flag, keep track of how long the chain was before invalid, and break.
+				if !isOpValid && !m.validateBlock(block, myHash) {
+					isBlockValid = false
+					chainlength = i
+					break
+				}
+				// else op is valid, apply the block to simulate
+				m.applyBlock(&block)
+				m.blockchain[myHash] = &block
+			}
+			// Chain is not valid all the way through
+			if !isBlockValid {
+				// Save the hash of the "new" end
+				// slice it at length of chain - chainlength (where we broke) to get the last valid block of the chain
+				longestHash = longestChain[len(longestChain)-chainlength-1].PrevHash
+				longestChain = longestChain[len(longestChain)-chainlength:]
+			}
+			// Revert states
+			for _, block := range longestChain {
+				m.revertBlock(&block)
+				delete(m.blockchain, block.PrevHash)
+			}
+			delete(m.blockchain, longestHash)
+
+			// Set tracker if we have a new VALID longestChain & hash
+			if len(currLongestHash) < 1 {
+				currLongestChain = longestChain
+				currLongestHash = longestHash
+			} else if len(longestChain) > len(currLongestChain) {
+				currLongestChain = longestChain
+				currLongestHash = longestHash
+			}
 		}
 	}
-	if len(response.Payload) > 1 {
-		longestBlockHash := response.Payload[0].(string)
-		longestBlockChain := response.Payload[1].([]Block)
+	if len(currLongestHash) > 1 {
+		longestBlockHash := currLongestHash
+		longestBlockChain := currLongestChain
 		currHash := longestBlockHash
 		for i := 0; i < len(longestBlockChain); i++ {
 			// Should be from Latest block to Earliest/Genesis
+			// Assumption is that the chain was validated earlier ^, just need to apply the blocks now
 			block := &longestBlockChain[i]
+			m.applyBlock(block)
 			m.blockchain[currHash] = block
 			m.addBlockChild(block, currHash)
 			currHash = longestBlockChain[i].PrevHash
@@ -339,8 +412,6 @@ func (m *Miner) getLongestChain() {
 		logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
 	}
 
-	// Create a dummy block as the genesis block
-	m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKeyString, 0}
 }
 
 // Creates a block and block hash that has a suffix of nHashZeroes
@@ -578,7 +649,7 @@ func (m *Miner) validateNewShape(s shapelib.Shape) (inkCost uint32, err error) {
 		// Check against all unmined, unvalidated, and validated operations
 		if overlaps, hash := m.hasOverlappingShape(s, geo); overlaps {
 			err = errorLib.ShapeOverlapError(hash)
-            return
+			return
 		}
 	}
 

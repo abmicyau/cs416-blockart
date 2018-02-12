@@ -377,8 +377,7 @@ func (m *Miner) mineBlock() {
 		select {
 		case <-m.newLongestChain:
 			logger.Println("Got a new longest chain, switching to: ", m.longestChainLastBlockHash)
-			prevHash = m.longestChainLastBlockHash
-			blockNo = m.blockchain[prevHash].BlockNo + 1
+			return
 		default:
 			var block Block
 			// Will create a opBlock or noOpBlock depending upon whether unminedOps are waiting to be mined
@@ -725,6 +724,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 		// compute longest chain
 		newChainLength := m.lengthLongestChain(blockHash)
 		oldChainLength := m.lengthLongestChain(m.longestChainLastBlockHash)
+		logger.Println(newChainLength, oldChainLength)
 		if newChainLength > oldChainLength {
 			if oldChainLength == 0 {
 				m.switchBranches(m.settings.GenesisBlockHash, blockHash)
@@ -952,8 +952,9 @@ func (m *Miner) lengthLongestChain(blockhash string) int {
 		prevBlockHash := m.blockchain[currhash].PrevHash
 		if _, exists := m.blockchain[prevBlockHash]; exists {
 			currhash = prevBlockHash
-		} else if prevBlockHash == m.settings.GenesisBlockHash {
-			break
+			if currhash == m.settings.GenesisBlockHash {
+				return length
+			}
 		} else {
 			// Case where the last block in this chain isn't the Genesis one
 			return 0

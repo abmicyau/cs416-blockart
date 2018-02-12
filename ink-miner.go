@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"./errorlib"
 	"./shapelib"
 )
 
@@ -42,24 +43,8 @@ const (
 	REMOVE
 )
 
-// Represents error codes for requests to an ink miner
-type MinerResponseError int
-
-const (
-	NO_ERROR MinerResponseError = iota
-	INVALID_SIGNATURE
-	INVALID_TOKEN
-	INSUFFICIENT_INK
-	INVALID_SHAPE_SVG_STRING
-	SHAPE_SVG_STRING_TOO_LONG
-	SHAPE_OVERLAP
-	OUT_OF_BOUNDS
-	INVALID_SHAPE_HASH
-	INVALID_BLOCK_HASH
-)
-
 type MinerResponse struct {
-	Error   MinerResponseError
+	Error   error
 	Payload []interface{}
 }
 
@@ -561,27 +546,32 @@ func (m *Miner) addBlockChild(block *Block, hash string) {
 	}
 }
 
-func (m *Miner) validateNewShape(s shapelib.Shape) (err error) {
+func (m *Miner) validateNewShape(s shapelib.Shape) (inkCost uint32, err error) {
 	if s.Stroke == "" {
-		return shapelib.InvalidShapeFillStrokeError("Shape stroke must be specified")
+		err = errorLib.InvalidShapeFillStrokeError("Shape stroke must be specified")
+		return
 	} else if s.Fill == "" {
-		return shapelib.InvalidShapeFillStrokeError("Shape fill must be specified")
+		err = errorLib.InvalidShapeFillStrokeError("Shape fill must be specified")
+		return
 	} else if s.Stroke == "transparent" || s.Fill == "transparent" {
-		return shapelib.InvalidShapeFillStrokeError("Both fill and stroke cannot be transparent")
+		err = errorLib.InvalidShapeFillStrokeError("Both fill and stroke cannot be transparent")
+		return
 	}
 
 	canvasSettings := m.settings.CanvasSettings
 	_, geo, err := s.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax)
 	if err != nil {
-		return err
-	} else if uint32(geo.GetInkCost()) > m.inkAccounts[m.pubKeyString] {
-		return shapelib.InsufficientInkError(m.inkAccounts[m.pubKeyString])
+		return
+	} else if inkCost = uint32(geo.GetInkCost()); inkCost > m.inkAccounts[m.pubKeyString] {
+		err = errorLib.InsufficientInkError(m.inkAccounts[m.pubKeyString])
+		return
 	} else {
 		for _sHash, _s := range m.shapes {
 			if _s.Owner == s.Owner {
 				continue
 			} else if _geo, _ := _s.GetGeometry(); _geo.HasOverlap(geo) {
-				return shapelib.ShapeOverlapError(_sHash)
+				err = errorLib.ShapeOverlapError(_sHash)
+				return
 			}
 		}
 	}
@@ -632,7 +622,7 @@ func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) error
 	s, s_ok := s.SetString(request.Payload[2].(string), 0)
 
 	if !r_ok || !s_ok {
-		response.Error = INVALID_SIGNATURE
+		response.Error = nil
 		return nil
 	}
 
@@ -641,7 +631,7 @@ func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) error
 
 	if validNonce && validSignature {
 		delete(m.nonces, nonce)
-		response.Error = NO_ERROR
+		response.Error = nil
 		response.Payload = make([]interface{}, 2)
 		token := getRand256()
 		m.tokens[token] = true
@@ -649,7 +639,7 @@ func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) error
 		response.Payload[0] = token
 		response.Payload[1] = m.settings.CanvasSettings
 	} else {
-		response.Error = INVALID_SIGNATURE
+		response.Error = new(errorLib.InvalidSignatureError)
 	}
 
 	return nil
@@ -660,18 +650,18 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
 	token := request.Token
 	_, validToken := m.tokens[token]
 	if !validToken {
-		response.Error = INVALID_TOKEN
+		response.Error = errorLib.InvalidTokenError(token)
 		return nil
 	}
 
 	hash := request.Payload[0].(string)
 	shape := m.shapes[hash]
 	if shape == nil {
-		response.Error = INVALID_SHAPE_HASH
+		response.Error = errorLib.InvalidShapeHashError(hash)
 		return nil
 	}
 
-	response.Error = NO_ERROR
+	response.Error = nil
 	response.Payload = make([]interface{}, 1)
 	response.Payload[0] = `<path d="` + shape.ShapeSvgString + `" stroke="` + shape.Stroke + `" fill="` + shape.Fill + `"/>`
 	return nil
@@ -752,7 +742,7 @@ func (m *Miner) GetBlockChain(request *MinerRequest, response *MinerResponse) er
 		longestChain[i] = *m.blockchain[currhash]
 		currhash = m.blockchain[currhash].PrevHash
 	}
-	response.Error = NO_ERROR
+	response.Error = nil
 	response.Payload = make([]interface{}, 2)
 	response.Payload[0] = m.longestChainLastBlockHash
 	response.Payload[1] = longestChain
@@ -765,11 +755,11 @@ func (m *Miner) GetInk(request *ArtnodeRequest, response *MinerResponse) error {
 	token := request.Token
 	_, validToken := m.tokens[token]
 	if !validToken {
-		response.Error = INVALID_TOKEN
+		response.Error = errorLib.InvalidTokenError(token)
 		return nil
 	}
 
-	response.Error = NO_ERROR
+	response.Error = nil
 	response.Payload = make([]interface{}, 1)
 	response.Payload[0] = m.inkAccounts[m.pubKeyString]
 
@@ -781,11 +771,11 @@ func (m *Miner) GetGenesisBlock(request *ArtnodeRequest, response *MinerResponse
 	token := request.Token
 	_, validToken := m.tokens[token]
 	if !validToken {
-		response.Error = INVALID_TOKEN
+		response.Error = errorLib.InvalidTokenError(token)
 		return nil
 	}
 
-	response.Error = NO_ERROR
+	response.Error = nil
 	response.Payload = make([]interface{}, 1)
 	response.Payload[0] = m.settings.GenesisBlockHash
 
@@ -797,18 +787,18 @@ func (m *Miner) GetShapes(request *ArtnodeRequest, response *MinerResponse) erro
 	token := request.Token
 	_, validToken := m.tokens[token]
 	if !validToken {
-		response.Error = INVALID_TOKEN
+		response.Error = errorLib.InvalidTokenError(token)
 		return nil
 	}
 
 	hash := request.Payload[0].(string)
 	block := m.blockchain[hash]
 	if block == nil {
-		response.Error = INVALID_BLOCK_HASH
+		response.Error = errorLib.InvalidBlockHashError(hash)
 		return nil
 	}
 
-	response.Error = NO_ERROR
+	response.Error = nil
 	response.Payload = make([]interface{}, 1)
 	shapeHashes := make([]string, len(block.Records))
 	for i, record := range block.Records {
@@ -824,18 +814,18 @@ func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) er
 	token := request.Token
 	_, validToken := m.tokens[token]
 	if !validToken {
-		response.Error = INVALID_TOKEN
+		response.Error = errorLib.InvalidTokenError(token)
 		return nil
 	}
 
 	hash := request.Payload[0].(string)
 	children, exists := m.blockChildren[hash]
 	if !exists {
-		response.Error = INVALID_BLOCK_HASH
+		response.Error = errorLib.InvalidBlockHashError(hash)
 		return nil
 	}
 
-	response.Error = NO_ERROR
+	response.Error = nil
 	response.Payload = make([]interface{}, 1)
 	response.Payload[0] = children
 
@@ -846,11 +836,11 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 	token := request.Token
 	_, validToken := m.tokens[token]
 	if !validToken {
-		response.Error = INVALID_TOKEN
-		return nil
+		response.Error = errorLib.InvalidTokenError(token)
+		return
 	}
 
-	validateNum := request.Payload[0].(uint8)
+	//validateNum := request.Payload[0].(uint8)
 	shapeType := request.Payload[1].(shapelib.ShapeType)
 	shapeSvgString := request.Payload[2].(string)
 	fill := strings.Trim(request.Payload[3].(string), " ")
@@ -863,33 +853,14 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		Stroke:         stroke,
 		Owner:          m.pubKeyString}
 
-	err = m.validateNewShape(shape)
-	if err != nil {
-		// TODO
-		// response.Error = ERROR
-		// response.Payload = make([]interface{}, 3)
-		// response.Payload[0] = ""
-		// response.Payload[1] = ""
-		// response.Payload[2] = 0
-
-		return err
-	}
-
-	// TODO: Perform validation
-	fmt.Println(validateNum)
-	fmt.Println(shapeType)
-	fmt.Println(shapeSvgString)
-	fmt.Println(fill)
-	fmt.Println(stroke)
-
-	// TODO: Add payload
-	response.Error = NO_ERROR
+	inkCost, err := m.validateNewShape(shape)
+	response.Error = err
 	response.Payload = make([]interface{}, 3)
 	response.Payload[0] = ""
 	response.Payload[1] = ""
-	response.Payload[2] = 0
+	response.Payload[2] = m.inkAccounts[m.pubKeyString] - inkCost
 
-	return nil
+	return
 }
 
 // </RPC METHODS>

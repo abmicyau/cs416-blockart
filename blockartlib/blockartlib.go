@@ -370,8 +370,21 @@ func (c CanvasInstance) GetInk() (inkRemaining uint32, err error) {
 // - DisconnectedError
 // - ShapeOwnerError
 func (c CanvasInstance) DeleteShape(validateNum uint8, shapeHash string) (inkRemaining uint32, err error) {
-	// TODO
-	return 0, nil
+	request := new(ArtnodeRequest)
+	response := new(MinerResponse)
+	request.Token = c.Token
+	request.Payload = make([]interface{}, 2)
+	request.Payload[0] = shapeHash
+	request.Payload[1] = validateNum
+	err = c.Miner.Call("Miner.DeleteShape", request, response)
+	if checkError(err) != nil || response.Error == INVALID_TOKEN {
+		return 0, DisconnectedError(c.MinerAddr)
+	} else if response.Error = INVALID_SHAPE_HASH {
+		return 0, ShapeOwnerError(shapeHash)
+	}
+
+	inkRemaining = response.Payload[0].(uint32)
+	return inkRemaining, nil
 }
 
 // Retrieves hashes contained by a specific block.

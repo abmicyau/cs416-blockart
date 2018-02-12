@@ -126,16 +126,20 @@ type Block struct {
 type Operation struct {
 	Type        OpType
 	Shape       shapelib.Shape
-	ShapeHash   string
 	InkCost     uint32
 	ValidateNum uint8
-    TimeStamp   int64
+  TimeStamp   int64
 }
 
 type OperationRecord struct {
 	Op           Operation
 	OpSig        string
 	PubKeyString string
+}
+
+type Signature struct {
+	r *big.Int
+	s *big.Int
 }
 
 type MinerInfo struct {
@@ -581,7 +585,6 @@ func (m *Miner) validateNewShape(s shapelib.Shape) (inkCost uint32, err error) {
             return
 		}
 	}
-
 	return
 }
 
@@ -948,6 +951,29 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 	return
 }
 
+func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (err error) {
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = INVALID_TOKEN
+		return nil
+	}
+
+	shapeHash := request.Payload[0].(string)
+	validateNum := request.Payload[1].(uint8)
+	// I'm going to assume the shape operation should be validated before removal.
+	// Please comment otherwise.
+	shapeRecord := m.getShapeRecordFromValidatedOps(shapeHash)
+	removalShapeRecord := m.createRemovalRecord(shapeRecord, validateNum)
+	if removalShapeRecord != nil {
+		m.unminedOps[removalShapeRecord.OpSig] = removalShapeRecord
+	} else {
+		return INVALID_SHAPE_HASH
+	}
+
+	return nil
+}
+
 // </RPC METHODS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -955,6 +981,35 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>
+
+func (m *Miner) getShapeRecordFromValidatedOps(shapeHash string) OperationRecord {
+	for _, opRecord := range m.validatedOps {
+		if opRecord.OpSig == shapeHash && opRecord.PubKeyString == m.pubKeyString {
+			if opRecord.Op.Type == ADD {
+				return opRecord
+			} else {
+				// This means this operation has been deleted previously and we can stop searching
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+func (m *Miner) createRemovalRecord(shapeRecord OperationRecord, validateNum uint8) OperationRecord {
+	if shapeRecord == nil {
+		return nil
+	}
+	op := &Operation{REMOVE, shapeRecord.Op.Shape, inkCost, validateNum}
+	encodedOp, err := json.Marshall(op)
+	checkError(err)
+	r, s, _ := ecdsa.Sign(rand.Reader, m.privKey, encodedOp)
+	sig := &Signature{r, s}
+	encodedSig, err := json.Marshall(sig)
+	checkError(err)
+	opRecord := &OperationRecord{op, string(encodedSig), m.pubKeyString}
+	return opRecord
+}
 
 // Counts the length of the block chain given a block hash
 func (m *Miner) lengthLongestChain(blockhash string) int {

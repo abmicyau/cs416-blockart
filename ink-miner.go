@@ -120,15 +120,14 @@ type Miner struct {
 	pubKey                    ecdsa.PublicKey
 	privKey                   ecdsa.PrivateKey
 	pubKeyString              string
-	shapes                    map[string]*shapelib.Shape
 	inkAccounts               map[string]uint32
 	settings                  *MinerNetSettings
 	nonces                    map[string]bool
 	tokens                    map[string]bool
 	newLongestChain           chan bool
-	unminedOps                map[string]OperationRecord
-	unvalidatedOps            map[string]OperationRecord
-	validatedOps              map[string]OperationRecord
+	unminedOps                map[string]*OperationRecord
+	unvalidatedOps            map[string]*OperationRecord
+	validatedOps              map[string]*OperationRecord
 }
 
 type Block struct {
@@ -199,14 +198,13 @@ func (m *Miner) init() {
 	m.serverAddr = args[0]
 	m.blockchain = make(map[string]*Block)
 	m.blockChildren = make(map[string][]string)
-	m.shapes = make(map[string]*shapelib.Shape)
 	m.nonces = make(map[string]bool)
 	m.tokens = make(map[string]bool)
 	m.miners = make(map[string]*rpc.Client)
 	m.inkAccounts = make(map[string]uint32)
-	m.unminedOps = make(map[string]OperationRecord)
-	m.unvalidatedOps = make(map[string]OperationRecord)
-	m.validatedOps = make(map[string]OperationRecord)
+	m.unminedOps = make(map[string]*OperationRecord)
+	m.unvalidatedOps = make(map[string]*OperationRecord)
+	m.validatedOps = make(map[string]*OperationRecord)
 	m.inkAccounts[m.pubKeyString] = 0
 	if len(args) <= 1 {
 		logger.Fatalln("Missing keys, please generate with: go run generateKeys.go")
@@ -380,7 +378,7 @@ func (m *Miner) mineBlock() {
 			if len(m.unminedOps) > 0 {
 				var opRecordArray []OperationRecord
 				for _, opRecord := range m.unminedOps {
-					opRecordArray = append(opRecordArray, opRecord)
+					opRecordArray = append(opRecordArray, *opRecord)
 				}
 				block = Block{blockNo, prevHash, opRecordArray, m.pubKeyString, nonce}
 			} else {
@@ -395,33 +393,21 @@ func (m *Miner) mineBlock() {
 	}
 }
 
-// For performance reasons, we keep track of some state in the miner.
-// This is not strictly necessary, but it will make many operations much
-// easier to perform.
+// Subtracts and credits ink to the ink accounts of each operation owner
+// within a specified block, as well as ink for the mined block itself.
 //
-// This method updates the miner's state based in a newly mined block.
-// This includes:
-//  - Adding new shapes to the shape collection
-//  - Removing deleted shapes from the shape collection
-//  - Updating the amount of ink that each miner has remaining
+// TODO: Use a mutex
 //
-// ! Assumption: an ADD and REMOVE operation for the same shape will
-// not exist in the same block.
-//
-// TODO: Use a lock to ensure thread safety.
-//
-func (m *Miner) applyBlock(block *Block) {
-	// update shapes and ink per operation
+func (m *Miner) applyBlockInk(block *Block) {
+	// update ink per operation
 	for _, record := range block.Records {
 		op := record.Op
 		if _, exists := m.inkAccounts[record.PubKeyString]; !exists {
 			m.inkAccounts[record.PubKeyString] = 0
 		}
 		if op.Type == ADD {
-			m.shapes[op.ShapeHash] = &op.Shape
 			m.inkAccounts[record.PubKeyString] -= op.InkCost
 		} else {
-			delete(m.shapes, op.ShapeHash)
 			m.inkAccounts[record.PubKeyString] += op.InkCost
 		}
 	}
@@ -437,84 +423,111 @@ func (m *Miner) applyBlock(block *Block) {
 	}
 }
 
-// Reverses applyBlock(), for rolling back during a branch switch.
-//
-func (m *Miner) revertBlock(block *Block) {
-	for _, record := range block.Records {
-		op := record.Op
-		if op.Type == REMOVE {
-			m.shapes[op.ShapeHash] = &op.Shape
-			m.inkAccounts[record.PubKeyString] -= op.InkCost
-		} else {
-			delete(m.shapes, op.ShapeHash)
-			m.inkAccounts[record.PubKeyString] += op.InkCost
-		}
-	}
-
-	// add ink for the newly mined block
-	if len(block.Records) == 0 {
-		m.inkAccounts[block.PubKeyString] -= m.settings.InkPerNoOpBlock
-	} else {
-		m.inkAccounts[block.PubKeyString] -= m.settings.InkPerOpBlock
-	}
+func (m *Miner) isOpValidateNumFulfilled(headBlockHash string, opRecord *OperationRecord, opBlock *Block) bool {
+	headBlockNo := m.blockchain[headBlockHash].BlockNo
+	blockNo := opBlock.BlockNo
+	return headBlockNo-blockNo >= uint32(opRecord.Op.ValidateNum)
 }
 
-// Manages miner state updates during a branch switch:
+// Manages miner state updates during a fast-forward OR a branch switch.
 //
-// 1. A series of applyBlock() and revertBlock() calls are performed up to the
-//    most recent ancestor of the current blockchain head and the new (longer)
-//    blockchain head so that the miner state reflects that of the new head.
-//    Note that this method is also called for the case of a simple fast-
-//    forward, where the most recent ancestor will be one of the blocks
-//    themself.
-//
-// 2. The miner's current blockchain head is updated.
+// In the case of a branch switch, we perform the following procedure:
+// - Traverse the blocks in the old branch one at a time, up to the most
+//   recent common ancestor
+//     - Update (reverse) ink accounts for each block
+//     - In each block, for each operation:
+//         If it is in the unvalidated group, then see if it exists in the new branch
+//           If it exists in the new branch:
+//             If its validateNum has been satisfied, then move it to the validated group
+//             If its validateNum has not been satisfied, then keep it in the unvalidated group
+//           If it doesn't exist in the new branch, move it back to the unmined group
+//         If it isn't in the unvalidated group (and is therefore in the validated group),
+//         then remove it from the validated group and discard it
 //
 // Assumption: oldBlockHash and newBlockHash must both be valid block hashes
 // for blocks which exist in the miner's current block map, and are both
-// connected to the genesis block. If this is not the case, then some bad
-// shit is gonna happen.
+// connected to the genesis block.
 //
-// TODO: Now we REALLY need a lock on the miner. These miner state updates
-// are race conditions waiting to happen...
+// TODO: Mutex
 //
-func (m *Miner) switchBranches(oldBlockHash, newBlockHash string) {
+func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 	// newBlock and oldBlock are "current" block pointers in the new and
 	// old blockchain, respectively, as we traverse backwards
 	newBlock := m.blockchain[newBlockHash]
 	oldBlock := m.blockchain[oldBlockHash]
+	newBranch := []*Block{}
+	oldBranch := []*Block{}
+	newBranchOps := make(map[string]bool)
 
+	// [Fast Forward + Branch Switch]
+	// Add blocks to the new branch up to the block num of the old branch head
 	for newBlock.BlockNo > oldBlock.BlockNo {
-		m.applyBlock(newBlock)
-		prevHash := newBlock.PrevHash
-		if prevHash == oldBlockHash {
-			// In the case of a fast-forward, the previous hash of the new
-			// block will eventually be equal to the hash of the old blockchain
-			// head. When it reaches that point, we can return, as we are done
-			// applying all necessary state updates in the new chain.
-			m.longestChainLastBlockHash = newBlockHash
-			m.newLongestChain <- true
-			return
+		newBranch = append(newBranch, newBlock)
+		for _, opRecord := range newBlock.Records {
+			newBranchOps[opRecord.OpSig] = true
 		}
-
-		newBlock = m.blockchain[prevHash]
+		newBlock = m.blockchain[newBlock.PrevHash]
 	}
 
-	// If we reach this point, that means the block number of the new block is
-	// equal to the block number of the old block, but their block hashes are
-	// not equal. Therefore, they are on separate branches (of what are now equal
-	// length), so we can now make both block pointers move backwards, adjusting
-	// the miner state along the way, until their previous hashes are equal. The
-	// fact that the loop guard comes at the end accounts for the last traversal
-	// step, as well as the edge case where both branches are only of length 1.
-	for {
-		m.applyBlock(newBlock)
-		m.revertBlock(oldBlock)
+	// [Branch Switch Only]
+	// At this point, if newBlock and oldBlock are not equal, then we need to
+	// perform a branch switch. We add blocks to the new and old branches up to
+	// the most recent common ancestor.
+	for newBlock != oldBlock {
+		newBranch = append(newBranch, newBlock)
+		for _, opRecord := range newBlock.Records {
+			newBranchOps[opRecord.OpSig] = true
+		}
+		oldBranch = append(oldBranch, oldBlock)
 		newBlock = m.blockchain[newBlock.PrevHash]
 		oldBlock = m.blockchain[oldBlock.PrevHash]
-		if newBlock.PrevHash == oldBlock.PrevHash {
-			break
+	}
+
+	// [Branch Switch Only]
+	// Take each operation in the old branch and check against operations in
+	// the new branch to take appropriate action.
+	for _, block := range oldBranch {
+		for _, opRecord := range block.Records {
+			if _, opUnvalidated := m.unvalidatedOps[opRecord.OpSig]; opUnvalidated {
+				if _, inNewBranch := newBranchOps[opRecord.OpSig]; inNewBranch {
+					// Remove from unvalidated (it will be dealt with later)
+					delete(m.unvalidatedOps, opRecord.OpSig)
+				} else {
+					// Move from unvalidated to unmined
+					m.unminedOps[opRecord.OpSig] = &opRecord
+					delete(m.unvalidatedOps, opRecord.OpSig)
+				}
+			} else {
+				// Reverse ink account for the op and remove from validated
+				op := opRecord.Op
+				if op.Type == ADD {
+					m.inkAccounts[opRecord.PubKeyString] += op.InkCost
+				} else {
+					m.inkAccounts[opRecord.PubKeyString] -= op.InkCost
+				}
+				delete(m.validatedOps, opRecord.OpSig)
+			}
 		}
+		// Reverse ink account for the mined block
+		if len(block.Records) == 0 {
+			m.inkAccounts[block.PubKeyString] -= m.settings.InkPerNoOpBlock
+		} else {
+			m.inkAccounts[block.PubKeyString] -= m.settings.InkPerOpBlock
+		}
+	}
+
+	// [Fast Forward + Branch Switch]
+	// Take each operation in the new branch and either add it to validated
+	// or unvalidated. Update ink accounts.
+	for _, block := range newBranch {
+		for _, opRecord := range block.Records {
+			if m.isOpValidateNumFulfilled(newBlockHash, &opRecord, block) {
+				m.validatedOps[opRecord.OpSig] = &opRecord
+			} else {
+				m.unvalidatedOps[opRecord.OpSig] = &opRecord
+			}
+		}
+		m.applyBlockInk(block)
 	}
 
 	m.longestChainLastBlockHash = newBlockHash
@@ -523,11 +536,11 @@ func (m *Miner) switchBranches(oldBlockHash, newBlockHash string) {
 
 // Sends block to all connected miners
 // Makes sure that enough miners are connected; if under minimum, it calls for more
-func (m *Miner) disseminateToConnectedMiners(block Block, blockHash string) {
+func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) {
 	m.getMiners() // checks all miners, connects to more if needed
 	request := new(MinerRequest)
 	request.Payload = make([]interface{}, 2)
-	request.Payload[0] = block
+	request.Payload[0] = *block
 	request.Payload[1] = blockHash
 	response := new(MinerResponse)
 	for minerAddr, minerCon := range m.miners {
@@ -568,68 +581,92 @@ func (m *Miner) validateNewShape(s shapelib.Shape) (err error) {
 	} else if uint32(geo.GetInkCost()) > m.inkAccounts[m.pubKeyString] {
 		return shapelib.InsufficientInkError(m.inkAccounts[m.pubKeyString])
 	} else {
-		for _sHash, _s := range m.shapes {
-			if _s.Owner == s.Owner {
-				continue
-			} else if _geo, _ := _s.GetGeometry(); _geo.HasOverlap(geo) {
-				return shapelib.ShapeOverlapError(_sHash)
-			}
+		// Check against all unmined, unvalidated, and validated operations
+		if overlaps, hash := m.hasOverlappingShape(s, geo); overlaps {
+			return shapelib.ShapeOverlapError(hash)
 		}
 	}
 
 	return
 }
 
+func (m *Miner) hasOverlappingShape(s shapelib.Shape, geo shapelib.ShapeGeometry) (overlaps bool, hash string) {
+	for hash, opRecord := range m.unminedOps {
+		_s := opRecord.Op.Shape
+		if _s.Owner == s.Owner {
+			continue
+		} else if _geo, _ := _s.GetGeometry(); _geo.HasOverlap(geo) {
+			return true, hash
+		}
+	}
+	for hash, opRecord := range m.unvalidatedOps {
+		_s := opRecord.Op.Shape
+		if _s.Owner == s.Owner {
+			continue
+		} else if _geo, _ := _s.GetGeometry(); _geo.HasOverlap(geo) {
+			return true, hash
+		}
+	}
+	for hash, opRecord := range m.validatedOps {
+		_s := opRecord.Op.Shape
+		if _s.Owner == s.Owner {
+			continue
+		} else if _geo, _ := _s.GetGeometry(); _geo.HasOverlap(geo) {
+			return true, hash
+		}
+	}
+	return false, hash
+}
+
 func (m *Miner) blockSuccessfullyMined(block *Block) bool {
-    encodedBlock, err := json.Marshal(*block)
-    checkError(err)
-    blockHash := md5Hash(encodedBlock)
-    if m.hashMatchesPOWDifficulty(blockHash) {
-        logger.Println("Found a new Block!: ", block, blockHash)
-        m.blockchain[blockHash] = block
-        m.addBlockChild(block, blockHash)
-        logger.Println("Current BlockChainMap: ", m.blockchain)
-        m.longestChainLastBlockHash = blockHash
-        m.applyBlock(block)
-        m.disseminateToConnectedMiners(*block, blockHash)
-        m.moveUnminedToUnvalidated(block)
-        return true
-    } else {
-        return false
-    }
+	encodedBlock, err := json.Marshal(*block)
+	checkError(err)
+	blockHash := md5Hash(encodedBlock)
+	if m.hashMatchesPOWDifficulty(blockHash) {
+		logger.Println("Found a new Block!: ", block, blockHash)
+		m.blockchain[blockHash] = block
+		m.addBlockChild(block, blockHash)
+		logger.Println("Current BlockChainMap: ", m.blockchain)
+		m.longestChainLastBlockHash = blockHash
+		m.applyBlockInk(block)
+		m.moveUnminedToUnvalidated(block)
+		m.disseminateToConnectedMiners(block, blockHash)
+		return true
+	} else {
+		return false
+	}
 }
 
 // Asserts that block hash matches the intended POW difficulty
 func (m *Miner) hashMatchesPOWDifficulty(blockhash string) bool {
-    return strings.HasSuffix(blockhash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock)))
+	return strings.HasSuffix(blockhash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock)))
 }
 
 func (m *Miner) moveUnminedToUnvalidated(block *Block) {
-    for _, opRecord := range block.Records {
-        m.unvalidatedOps[opRecord.OpSig] = opRecord
-        delete(m.unminedOps, opRecord.OpSig)
-    }
+	for _, opRecord := range block.Records {
+		m.unvalidatedOps[opRecord.OpSig] = &opRecord
+		delete(m.unminedOps, opRecord.OpSig)
+	}
 }
 
 // Sends block to all connected miners
 // Makes sure that enough miners are connected; if under minimum, it calls for more
-func (m *Miner) disseminateOpToConnectedMiners(opRec OperationRecord) {
-    m.getMiners() // checks all miners, connects to more if needed
-    request := new(MinerRequest)
-    request.Payload = make([]interface{}, 1)
-    request.Payload[0] = opRec
-    response := new(MinerResponse)
-    for minerAddr, minerCon := range m.miners {
-        isConnected := false
-        minerCon.Call("Miner.PingMiner", "", &isConnected)
-        if isConnected {
-            minerCon.Call("Miner.SendOp", request, response)
-        } else {
-            delete(m.miners, minerAddr)
-        }
-    }
+func (m *Miner) disseminateOpToConnectedMiners(opRec *OperationRecord) {
+	m.getMiners() // checks all miners, connects to more if needed
+	request := new(MinerRequest)
+	request.Payload = make([]interface{}, 1)
+	request.Payload[0] = *opRec
+	response := new(MinerResponse)
+	for minerAddr, minerCon := range m.miners {
+		isConnected := false
+		minerCon.Call("Miner.PingMiner", "", &isConnected)
+		if isConnected {
+			minerCon.Call("Miner.SendOp", request, response)
+		} else {
+			delete(m.miners, minerAddr)
+		}
+	}
 }
-
 
 // </PRIVATE METHODS : MINER>
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -678,7 +715,12 @@ func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) error
 	return nil
 }
 
-// Get the svg string for the shape identified by a given shape hash, if it exists
+// Gets the svg string for the shape identified by a given shape hash (operation
+// signature), if it exists.
+//
+// This only checks for ops in the validated group (because there's no way an art
+// app could get the hash of an unvalidated operation).
+//
 func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) error {
 	token := request.Token
 	_, validToken := m.tokens[token]
@@ -688,12 +730,13 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
 	}
 
 	hash := request.Payload[0].(string)
-	shape := m.shapes[hash]
-	if shape == nil {
+	opRecord := m.validatedOps[hash]
+	if opRecord == nil {
 		response.Error = INVALID_SHAPE_HASH
 		return nil
 	}
 
+	shape := opRecord.Op.Shape
 	response.Error = NO_ERROR
 	response.Payload = make([]interface{}, 1)
 	response.Payload[0] = `<path d="` + shape.ShapeSvgString + `" stroke="` + shape.Stroke + `" fill="` + shape.Fill + `"/>`
@@ -708,7 +751,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 
 	// TODO:
 	//		Validate Block
-	isHashValid := m.validateBlock(block, blockHash)
+	isHashValid := m.validateBlock(&block, blockHash)
 	m.moveUnminedToUnvalidated(&block) // need to remove unmined ops to stop mining mined ops
 	//		If Valid, add to block chain
 	//		Else return invalid
@@ -722,16 +765,16 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 		oldChainLength := m.lengthLongestChain(m.longestChainLastBlockHash)
 		if newChainLength > oldChainLength {
 			if oldChainLength == 0 {
-				m.switchBranches(m.settings.GenesisBlockHash, blockHash)
+				m.changeBlockchainHead(m.settings.GenesisBlockHash, blockHash)
 			} else {
-				m.switchBranches(m.longestChainLastBlockHash, blockHash)
+				m.changeBlockchainHead(m.longestChainLastBlockHash, blockHash)
 			}
 		}
 		// TODO: else, if equal, pick the largest hash = random
 		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners
-		m.disseminateToConnectedMiners(block, blockHash)
+		m.disseminateToConnectedMiners(&block, blockHash)
 	}
 	return nil
 }
@@ -746,10 +789,10 @@ func (m *Miner) SendOp(request *MinerRequest, response *MinerResponse) error {
 	_, validExists := m.validatedOps[opRec.OpSig]
 
 	if !unMinedExists && !unValidExists && !validExists && isSigValid {
-		m.unminedOps[opRec.OpSig] = opRec
+		m.unminedOps[opRec.OpSig] = &opRec
 
 		//	Disseminate Op to connected Miners
-		m.disseminateOpToConnectedMiners(opRec)
+		m.disseminateOpToConnectedMiners(&opRec)
 	}
 	return nil
 }
@@ -815,7 +858,8 @@ func (m *Miner) GetGenesisBlock(request *ArtnodeRequest, response *MinerResponse
 	return nil
 }
 
-// Get a list of shape hashes in a given block
+// Gets a list of shape hashes (operation signatures) in a given block.
+//
 func (m *Miner) GetShapes(request *ArtnodeRequest, response *MinerResponse) error {
 	token := request.Token
 	_, validToken := m.tokens[token]
@@ -835,7 +879,7 @@ func (m *Miner) GetShapes(request *ArtnodeRequest, response *MinerResponse) erro
 	response.Payload = make([]interface{}, 1)
 	shapeHashes := make([]string, len(block.Records))
 	for i, record := range block.Records {
-		shapeHashes[i] = record.Op.ShapeHash
+		shapeHashes[i] = record.OpSig
 	}
 	response.Payload[0] = shapeHashes
 
@@ -949,8 +993,8 @@ func (m *Miner) lengthLongestChain(blockhash string) int {
 // - blockhash matches POW difficulty and nonce is correct
 // - the given block points to a valid hash in the blockchain
 // TODO: operation validations
-func (m *Miner) validateBlock(block Block, blockHash string) bool {
-	encodedBlock, err := json.Marshal(block)
+func (m *Miner) validateBlock(block *Block, blockHash string) bool {
+	encodedBlock, err := json.Marshal(*block)
 	checkError(err)
 	newBlockHash := md5Hash(encodedBlock)
 	if m.hashMatchesPOWDifficulty(newBlockHash) && blockHash == newBlockHash && m.blockchain[block.PrevHash] != nil {
@@ -989,12 +1033,12 @@ func generateNewKeys() ecdsa.PrivateKey {
 }
 
 func decodeStringPubKey(pubkey string) *ecdsa.PublicKey {
-    pubBytes, _ := hex.DecodeString(pubkey)
-    pubKey, err := x509.ParsePKIXPublicKey(pubBytes)
-    if checkError(err) != nil {
-        log.Fatalln("Error with Public Key")
-    }
-    return pubKey.(*ecdsa.PublicKey)
+	pubBytes, _ := hex.DecodeString(pubkey)
+	pubKey, err := x509.ParsePKIXPublicKey(pubBytes)
+	if checkError(err) != nil {
+		log.Fatalln("Error with Public Key")
+	}
+	return pubKey.(*ecdsa.PublicKey)
 }
 
 // Generates a secure 256-bit nonce/token string for

@@ -476,27 +476,5 @@ func checkError(err error) error {
 	return nil
 }
 
-// // Determines if the proposed shape overlaps a shape on the canvas
-// // not belonging to the proposed shapes' owner.
-// func (c CanvasInstance) hasOverlappingShape(shape Shape) (overlap bool) {
-// 	for _, _shape := range c.shapes { // For every shape on the canvas
-// 		// Skip if owner is the same
-// 		if _shape.owner == shape.owner {
-// 			continue
-// 		}
-
-// 		// Check for an overlap
-// 		if overlap = _shape.hasOverlap(shape); overlap {
-// 			break
-// 		}
-// 	}
-
-// 	return
-// }
-
-// func (s Shape) hash() string {
-// 	return ""
-// }
-
 // </PRIVATE METHODS>
 ////////////////////////////////////////////////////////////////////////////////////////////

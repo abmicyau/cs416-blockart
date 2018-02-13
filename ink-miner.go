@@ -954,53 +954,12 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		ValidateNum: validateNum,
 		TimeStamp:   time.Now().UnixNano()}
 
-	encodedOp, err := json.Marshal(op)
-	checkError(err)
-	_opSig := []byte(encodedOp)
-	_, _, err = ecdsa.Sign(rand.Reader, &m.privKey, _opSig)
-	checkError(err)
-	opSig := string(_opSig)
-
-	opRecord := OperationRecord{
-		Op:           op,
-		OpSig:        opSig,
-		PubKeyString: m.pubKeyString}
-
-	m.unminedOps[opSig] = &opRecord
+    opSig := m.addOperationRecord(&op)
 
 	response.Error = nil
-	response.Payload = make([]interface{}, 3)
+	response.Payload = make([]interface{}, 2)
 	response.Payload[0] = opSig
 	response.Payload[1] = m.inkAccounts[m.pubKeyString] - inkCost
-
-	return
-}
-
-func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (err error) {
-	token := request.Token
-	_, validToken := m.tokens[token]
-	if !validToken {
-		response.Error = errorLib.InvalidTokenError(token)
-		return
-	}
-
-	opSig := request.Payload[0].(string)
-	op := m.validatedOps[opSig]
-
-	response.Payload = make([]interface{}, 2)
-	response.Payload[0] = false
-	response.Payload[1] = ""
-	if op == nil {
-		response.Payload[0] = false
-	} else {
-		blockHash, err := m.getOpBlockHash(opSig)
-		if err != nil {
-			response.Error = err
-		} else {
-			response.Payload[0] = true
-			response.Payload[1] = blockHash
-		}
-	}
 
 	return
 }
@@ -1015,17 +974,58 @@ func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (e
 
 	shapeHash := request.Payload[0].(string)
 	validateNum := request.Payload[1].(uint8)
-	// I'm going to assume the shape operation should be validated before removal.
-	// Please comment otherwise.
-	shapeRecord := m.getShapeRecordFromValidatedOps(shapeHash)
-	if shapeRecord != nil {
-		m.addRemovalRecordToUnminedOps(*shapeRecord, validateNum)
-	} else {
-		response.Error = errorLib.ShapeOwnerError(shapeHash)
-	}
+
+    opRecord := m.validatedOps[shapeHash]
+    if opRecord == nil || opRecord.PubKeyString != m.pubKeyString{
+        response.Error = errorLib.ShapeOwnerError(shapeHash)
+        return
+    }
+
+    op := Operation{
+        Type:        REMOVE,
+        // TODO: We need to set the fill to white here to 'erase' the shape
+        Shape:       opRecord.Op.Shape,
+        InkCost:     opRecord.Op.InkCost,
+        ValidateNum: validateNum,
+        TimeStamp:   time.Now().UnixNano()}
+
+    opSig := m.addOperationRecord(&op)
 
 	response.Error = nil
-	return nil
+    response.Payload = make([]interface{}, 2)
+    response.Payload[0] = opSig
+    response.Payload[1] = m.inkAccounts[m.pubKeyString] + opRecord.Op.InkCost
+
+    return
+}
+
+func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (err error) {
+    token := request.Token
+    _, validToken := m.tokens[token]
+    if !validToken {
+        response.Error = errorLib.InvalidTokenError(token)
+        return
+    }
+
+    opSig := request.Payload[0].(string)
+    op := m.validatedOps[opSig]
+
+    response.Payload = make([]interface{}, 2)
+    response.Payload[0] = false
+    response.Payload[1] = ""
+    if op == nil {
+        response.Payload[0] = false
+    } else {
+        blockHash, err := m.getOpBlockHash(opSig)
+        if err != nil {
+            response.Error = err
+        } else {
+            response.Payload[0] = true
+            response.Payload[1] = blockHash
+        }
+    }
+
+    return
 }
 
 // </RPC METHODS>
@@ -1036,31 +1036,23 @@ func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (e
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>
 
-func (m *Miner) getShapeRecordFromValidatedOps(shapeHash string) *OperationRecord {
-	for _, opRecord := range m.validatedOps {
-		if opRecord.OpSig == shapeHash && opRecord.PubKeyString == m.pubKeyString {
-			if opRecord.Op.Type == ADD {
-				return opRecord
-			} else {
-				// This means this operation has been deleted previously and we can stop searching
-				return nil
-			}
-		}
-	}
-	return nil
-}
+func (m *Miner) addOperationRecord(op *Operation) (opSig string) {
+    encodedOp, err := json.Marshal(*op)
+    checkError(err)
+    opSigBytes := []byte(encodedOp)
+    _, _, err = ecdsa.Sign(rand.Reader, &m.privKey, opSigBytes)
+    checkError(err)
+    opSig = string(opSigBytes)
 
-func (m *Miner) addRemovalRecordToUnminedOps(shapeRecord OperationRecord, validateNum uint8) {
-	op := &Operation{REMOVE, shapeRecord.Op.Shape, shapeRecord.Op.InkCost, validateNum, time.Now().UnixNano()}
-	encodedOp, err := json.Marshal(op)
-	checkError(err)
-	r, s, _ := ecdsa.Sign(rand.Reader, &m.privKey, encodedOp)
-	sig := &Signature{r, s}
-	encodedSig, err := json.Marshal(sig)
-	checkError(err)
-	opRecord := &OperationRecord{*op, string(encodedSig), m.pubKeyString}
-	m.unminedOps[string(encodedSig)] = opRecord
-	m.disseminateOpToConnectedMiners(opRecord)
+    opRecord := OperationRecord{
+        Op:           *op,
+        OpSig:        opSig,
+        PubKeyString: m.pubKeyString}
+
+    m.unminedOps[opSig] = &opRecord
+    m.disseminateOpToConnectedMiners(&opRecord)
+
+    return
 }
 
 // Counts the length of the block chain given a block hash

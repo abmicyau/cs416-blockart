@@ -19,12 +19,12 @@ func TestNormalizeSvgString(t *testing.T) {
 // Test command parsing
 func TestGetCommands(t *testing.T) {
 	shape := Shape{ShapeType: PATH, ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
-	commands, _ := shape.getCommands()
-	commandsExpected := []Command{
-		Command{"M", 10, 10},
-		Command{"L", 5, 5},
-		Command{"h", -3, 0},
-		Command{"Z", 0, 0}}
+	commands, _ := shape.getPathCommands()
+	commandsExpected := []PathCommand{
+		PathCommand{"M", 10, 10},
+		PathCommand{"L", 5, 5},
+		PathCommand{"h", -3, 0},
+		PathCommand{"Z", 0, 0}}
 
 	for i := range commands {
 		svgCommand := commands[i]

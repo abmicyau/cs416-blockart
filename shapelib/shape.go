@@ -14,13 +14,20 @@ import (
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <COMMAND>
 
-// Represents a command with type(M, H, L, m, h, l, etc.)
+// Represents a path command with type(M, H, L, m, h, l, etc.)
 // and specified (x, y) coordinate
-type Command struct {
+type PathCommand struct {
 	CmdType string
 
 	X int64
 	Y int64
+}
+
+// Represents a circle command with type(X, Y, R, x, y, r) and value
+type CircleCommand struct {
+	CmdType string
+
+	Val uint32
 }
 
 // </COMMAND>
@@ -56,13 +63,17 @@ func (s *Shape) IsValid(xMax uint32, yMax uint32) (valid bool, geometry ShapeGeo
 	return
 }
 
-// Extracts commands from provided SVG string
-func (s *Shape) getCommands() (commands []Command, err error) {
-	var _commands []Command
+func (s *Shape) getCircleCommands() (commands []CircleCommand, err error) {
+
+	return
+}
+
+func (s *Shape) getPathCommands() (commands []PathCommand, err error) {
+	var _commands []PathCommand
 
 	normSvg := normalizeSvgString(s.ShapeSvgString)
 	for {
-		_command := Command{}
+		_command := PathCommand{}
 
 		re := regexp.MustCompile("(^.+?)([a-zA-Z])(.*)")
 		cmdString := strings.Trim(re.ReplaceAllString(normSvg, "$1"), " ")
@@ -78,7 +89,7 @@ func (s *Shape) getCommands() (commands []Command, err error) {
 			if len(pos) < 2 || posEmpty {
 				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
 			} else if s.Fill != "transparent" {
-				if commandExists(Command{CmdType: "M"}, _commands) || commandExists(Command{CmdType: "m"}, _commands) {
+				if pathCommandExists(PathCommand{CmdType: "M"}, _commands) || pathCommandExists(PathCommand{CmdType: "m"}, _commands) {
 					return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
 				}
 			}
@@ -174,8 +185,38 @@ func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 	return
 }
 
+func (s *Shape) getCircleGeometry() (geometry CircleGeometry, err error) {
+	commands, err := s.getCircleCommands()
+	if err != nil {
+		return
+	}
+
+	geometry = CircleGeometry{
+		ShapeSvgString: s.ShapeSvgString,
+		Fill:           s.Fill,
+		Min:            Point{},
+		Max:            Point{}}
+
+	for i := range commands {
+		_command := commands[i]
+
+		switch _command.CmdType {
+		case "X", "x":
+
+		case "Y", "y":
+
+		case "R", "r":
+
+		default:
+			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+		}
+	}
+
+	return
+}
+
 func (s *Shape) getPathGeometry() (geometry PathGeometry, err error) {
-	commands, err := s.getCommands()
+	commands, err := s.getPathCommands()
 	if err != nil {
 		return
 	}
@@ -246,7 +287,7 @@ func (s *Shape) getPathGeometry() (geometry PathGeometry, err error) {
 
 			geometry.VertexSets = append(geometry.VertexSets, currentVertices)
 			currentVertices = []Point{}
-		case "X", "x", "Y", "y", "R", "r":
+		default:
 			err = InvalidShapeSvgStringError(s.ShapeSvgString)
 		}
 
@@ -630,7 +671,7 @@ func (l LineSegment) Intersects(_l LineSegment) bool {
 // <FUNCTIONS>
 
 // Determines if the given command exists in a set of commands
-func commandExists(c Command, commands []Command) bool {
+func pathCommandExists(c PathCommand, commands []PathCommand) bool {
 	for _, command := range commands {
 		if c.CmdType == command.CmdType {
 			return true

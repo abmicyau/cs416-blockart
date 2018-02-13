@@ -232,9 +232,9 @@ func (s *Shape) getCircleGeometry() (geometry CircleGeometry, err error) {
 		Max:            Point{}}
 
 	for i := range commands {
-		_command := commands[i]
+		command := commands[i]
 
-		switch _command.CmdType {
+		switch command.CmdType {
 		case "X", "x":
 
 		case "Y", "y":
@@ -264,12 +264,12 @@ func (s *Shape) getPathGeometry() (geometry PathGeometry, err error) {
 	absPos, relPos := Point{0, 0}, Point{0, 0}
 	var currentVertices []Point
 	for i := range commands {
-		_command := commands[i]
+		command := commands[i]
 
-		switch _command.CmdType {
+		switch command.CmdType {
 		case "M":
-			absPos.X, absPos.Y = _command.X, _command.Y
-			relPos.X, relPos.Y = _command.X, _command.Y
+			absPos.X, absPos.Y = command.X, command.Y
+			relPos.X, relPos.Y = command.X, command.Y
 
 			if len(currentVertices) > 0 {
 				geometry.VertexSets = append(geometry.VertexSets, currentVertices)
@@ -278,7 +278,7 @@ func (s *Shape) getPathGeometry() (geometry PathGeometry, err error) {
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "m":
-			absPos.X, absPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+			absPos.X, absPos.Y = relPos.X+command.X, relPos.Y+command.Y
 			relPos.X, relPos.Y = absPos.X, absPos.Y
 
 			if len(currentVertices) > 0 {
@@ -288,27 +288,27 @@ func (s *Shape) getPathGeometry() (geometry PathGeometry, err error) {
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "H":
-			relPos.X = _command.X
+			relPos.X = command.X
 
 			currentVertices = append(currentVertices, Point{relPos.X, absPos.Y})
 		case "V":
-			relPos.Y = _command.Y
+			relPos.Y = command.Y
 
 			currentVertices = append(currentVertices, Point{absPos.X, relPos.Y})
 		case "L":
-			relPos.X, relPos.Y = _command.X, _command.Y
+			relPos.X, relPos.Y = command.X, command.Y
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "h":
-			relPos.X = relPos.X + _command.X
+			relPos.X = relPos.X + command.X
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "v":
-			relPos.Y = relPos.Y + _command.Y
+			relPos.Y = relPos.Y + command.Y
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "l":
-			relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+			relPos.X, relPos.Y = relPos.X+command.X, relPos.Y+command.Y
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "Z":

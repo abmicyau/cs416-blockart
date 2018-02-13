@@ -165,126 +165,134 @@ func (s *Shape) getCommands() (commands []Command, err error) {
 
 // Gets the shape geometry of a a provided shape
 func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
+	if s.ShapeType == CIRCLE {
+
+	} else if s.ShapeType == PATH {
+		geometry, err = s.getPathGeometry()
+	}
+
+	return
+}
+
+func (s *Shape) getPathGeometry() (geometry PathGeometry, err error) {
 	commands, err := s.getCommands()
 	if err != nil {
 		return
 	}
 
-	if s.ShapeType == PATH {
-		_geometry := PathGeometry{
-			ShapeSvgString: s.ShapeSvgString,
-			Fill:           s.Fill,
-			Min:            Point{},
-			Max:            Point{}}
+	geometry = PathGeometry{
+		ShapeSvgString: s.ShapeSvgString,
+		Fill:           s.Fill,
+		Min:            Point{},
+		Max:            Point{}}
 
-		absPos, relPos := Point{0, 0}, Point{0, 0}
-		var currentVertices []Point
-		for i := range commands {
-			_command := commands[i]
+	absPos, relPos := Point{0, 0}, Point{0, 0}
+	var currentVertices []Point
+	for i := range commands {
+		_command := commands[i]
 
-			switch _command.CmdType {
-			case "M":
-				absPos.X, absPos.Y = _command.X, _command.Y
-				relPos.X, relPos.Y = _command.X, _command.Y
+		switch _command.CmdType {
+		case "M":
+			absPos.X, absPos.Y = _command.X, _command.Y
+			relPos.X, relPos.Y = _command.X, _command.Y
 
-				if len(currentVertices) > 0 {
-					_geometry.VertexSets = append(_geometry.VertexSets, currentVertices)
-					currentVertices = []Point{}
-				}
-
-				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-			case "m":
-				absPos.X, absPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
-				relPos.X, relPos.Y = absPos.X, absPos.Y
-
-				if len(currentVertices) > 0 {
-					_geometry.VertexSets = append(_geometry.VertexSets, currentVertices)
-					currentVertices = []Point{}
-				}
-
-				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-			case "H":
-				relPos.X = _command.X
-
-				currentVertices = append(currentVertices, Point{relPos.X, absPos.Y})
-			case "V":
-				relPos.Y = _command.Y
-
-				currentVertices = append(currentVertices, Point{absPos.X, relPos.Y})
-			case "L":
-				relPos.X, relPos.Y = _command.X, _command.Y
-
-				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-			case "h":
-				relPos.X = relPos.X + _command.X
-
-				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-			case "v":
-				relPos.Y = relPos.Y + _command.Y
-
-				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-			case "l":
-				relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
-
-				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-			case "Z":
-				currentVertices = append(currentVertices, currentVertices[0])
-
-				_geometry.VertexSets = append(_geometry.VertexSets, currentVertices)
-				currentVertices = []Point{}
-			case "z":
-				currentVertices = append(currentVertices, currentVertices[0])
-
-				_geometry.VertexSets = append(_geometry.VertexSets, currentVertices)
+			if len(currentVertices) > 0 {
+				geometry.VertexSets = append(geometry.VertexSets, currentVertices)
 				currentVertices = []Point{}
 			}
 
-			if i == 0 {
-				_geometry.Min = relPos
-				_geometry.Max = relPos
-			} else {
-				if relPos.X < _geometry.Min.X {
-					_geometry.Min.X = relPos.X
-				} else if relPos.X > _geometry.Max.X {
-					_geometry.Max.X = relPos.X
-				}
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+		case "m":
+			absPos.X, absPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+			relPos.X, relPos.Y = absPos.X, absPos.Y
 
-				if relPos.Y < _geometry.Min.Y {
-					_geometry.Min.Y = relPos.Y
-				} else if relPos.Y > _geometry.Max.Y {
-					_geometry.Max.Y = relPos.Y
-				}
+			if len(currentVertices) > 0 {
+				geometry.VertexSets = append(geometry.VertexSets, currentVertices)
+				currentVertices = []Point{}
+			}
+
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+		case "H":
+			relPos.X = _command.X
+
+			currentVertices = append(currentVertices, Point{relPos.X, absPos.Y})
+		case "V":
+			relPos.Y = _command.Y
+
+			currentVertices = append(currentVertices, Point{absPos.X, relPos.Y})
+		case "L":
+			relPos.X, relPos.Y = _command.X, _command.Y
+
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+		case "h":
+			relPos.X = relPos.X + _command.X
+
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+		case "v":
+			relPos.Y = relPos.Y + _command.Y
+
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+		case "l":
+			relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+
+			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+		case "Z":
+			currentVertices = append(currentVertices, currentVertices[0])
+
+			geometry.VertexSets = append(geometry.VertexSets, currentVertices)
+			currentVertices = []Point{}
+		case "z":
+			currentVertices = append(currentVertices, currentVertices[0])
+
+			geometry.VertexSets = append(geometry.VertexSets, currentVertices)
+			currentVertices = []Point{}
+		case "X", "x", "Y", "y", "R", "r":
+			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+		}
+
+		if i == 0 {
+			geometry.Min = relPos
+			geometry.Max = relPos
+		} else {
+			if relPos.X < geometry.Min.X {
+				geometry.Min.X = relPos.X
+			} else if relPos.X > geometry.Max.X {
+				geometry.Max.X = relPos.X
+			}
+
+			if relPos.Y < geometry.Min.Y {
+				geometry.Min.Y = relPos.Y
+			} else if relPos.Y > geometry.Max.Y {
+				geometry.Max.Y = relPos.Y
 			}
 		}
+	}
 
-		if len(currentVertices) > 0 {
-			_geometry.VertexSets = append(_geometry.VertexSets, currentVertices)
-		}
+	if len(currentVertices) > 0 {
+		geometry.VertexSets = append(geometry.VertexSets, currentVertices)
+	}
 
-		// Make sure its closed
-		if s.Fill != "transparent" {
-			if len(_geometry.VertexSets) > 1 {
+	// Make sure its closed
+	if s.Fill != "transparent" {
+		if len(geometry.VertexSets) > 1 {
+			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+		} else {
+			firstVertex := geometry.VertexSets[0][0]
+			lastVertex := geometry.VertexSets[0][len(geometry.VertexSets[0])-1]
+
+			if firstVertex != lastVertex {
 				err = InvalidShapeSvgStringError(s.ShapeSvgString)
-			} else {
-				firstVertex := _geometry.VertexSets[0][0]
-				lastVertex := _geometry.VertexSets[0][len(_geometry.VertexSets[0])-1]
-
-				if firstVertex != lastVertex {
-					err = InvalidShapeSvgStringError(s.ShapeSvgString)
-				}
-			}
-
-			if err != nil {
-				return
 			}
 		}
 
-		_geometry.LineSegmentSets = make([]LineSegmentSet, len(_geometry.VertexSets))
-		for i, vSet := range _geometry.VertexSets {
-			_geometry.LineSegmentSets[i] = getLineSegments(vSet)
+		if err != nil {
+			return
 		}
+	}
 
-		geometry = _geometry
+	geometry.LineSegmentSets = make([]LineSegmentSet, len(geometry.VertexSets))
+	for i, vSet := range geometry.VertexSets {
+		geometry.LineSegmentSets[i] = getLineSegments(vSet)
 	}
 
 	return

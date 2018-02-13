@@ -982,6 +982,10 @@ func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (e
 
 	opSig := request.Payload[0].(string)
 	op := m.validatedOps[opSig]
+
+	response.Payload = make([]interface{}, 2)
+	response.Payload[0] = false
+	response.Payload[1] = ""
 	if op == nil {
 		response.Payload[0] = false
 	} else {

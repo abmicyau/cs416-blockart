@@ -29,9 +29,11 @@
 
                     <!--   Icon Section   -->
                     <div class="row">
-                        <div class="col s3" style="overflow-y: scroll; height:400px;">
+                        <div class="col s3">
                             <h4>Blocks:</h4>
-                            <p v-for="block in BlockChain">{{block.BlockHash}}</p>
+                            <div style="overflow-y: scroll; height:400px;">
+                                <p v-for="block in BlockChain">{{block.BlockHash}}</p>
+                            </div>
                         </div>
                         <div class="col s9">
                             <div class="card">

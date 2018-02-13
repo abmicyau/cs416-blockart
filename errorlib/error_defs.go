@@ -100,5 +100,8 @@ func (e InvalidTokenError) Error() string {
 // <FUNCTIONS>
 
 func IsType(err error, errType string) bool {
+	if err == nil {
+		return false
+	}
 	return strings.HasSuffix(reflect.TypeOf(err).String(), errType)
 }

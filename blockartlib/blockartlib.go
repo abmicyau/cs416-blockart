@@ -10,6 +10,7 @@ package blockartlib
 import (
 	"crypto/ecdsa"
 	"crypto/rand"
+	"encoding/gob"
 	"fmt"
 	"net/rpc"
 	"os"
@@ -240,6 +241,7 @@ func (e InvalidBlockHashError) Error() string {
 // - DisconnectedError
 func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, setting CanvasSettings, err error) {
 	// Greet the miner and retrieve a nonce
+	gob.Register(errorLib.InvalidBlockHashError(""))
 	miner, err := rpc.Dial("tcp", minerAddr)
 	if checkError(err) != nil {
 		return CanvasInstance{}, CanvasSettings{}, DisconnectedError(minerAddr)

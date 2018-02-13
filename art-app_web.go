@@ -43,7 +43,6 @@ var canvasGlobal blockartlib.Canvas
 func main() {
 	// TO USE ME
 	webserverAddr := "127.0.0.1:8080"
-
 	args := os.Args[1:]
 
 	if len(args) != 2 {

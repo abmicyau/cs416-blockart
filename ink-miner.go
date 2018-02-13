@@ -165,6 +165,7 @@ func main() {
 	gob.Register(Block{})
 	gob.Register(Operation{})
 	gob.Register(OperationRecord{})
+	gob.Register(errorLib.InvalidBlockHashError(""))
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()

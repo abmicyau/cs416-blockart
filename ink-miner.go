@@ -138,8 +138,8 @@ type OperationRecord struct {
 }
 
 type Signature struct {
-	r *big.Int
-	s *big.Int
+	R *big.Int
+	S *big.Int
 }
 
 type MinerInfo struct {

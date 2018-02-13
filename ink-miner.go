@@ -1039,10 +1039,12 @@ func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (e
 func (m *Miner) addOperationRecord(op *Operation) (opSig string) {
     encodedOp, err := json.Marshal(*op)
     checkError(err)
-    opSigBytes := []byte(encodedOp)
-    _, _, err = ecdsa.Sign(rand.Reader, &m.privKey, opSigBytes)
+    r, s, err := ecdsa.Sign(rand.Reader, &m.privKey, encodedOp)
     checkError(err)
-    opSig = string(opSigBytes)
+    sig := Signature{r, s}
+    encodedSig, err := json.Marshal(sig)
+    checkError(err)
+    opSig = string(encodedSig)
 
     opRecord := OperationRecord{
         Op:           *op,

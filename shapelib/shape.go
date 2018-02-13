@@ -63,6 +63,17 @@ func (s Shape) isCircle() bool {
 
 // Determines whether the shape is valid
 func (s Shape) IsValid(xMax uint32, yMax uint32) (valid bool, geometry ShapeGeometry, err error) {
+	if s.Stroke == "" {
+		err = InvalidShapeFillStrokeError("Shape stroke must be specified")
+		return
+	} else if s.Fill == "" {
+		err = InvalidShapeFillStrokeError("Shape fill must be specified")
+		return
+	} else if s.Stroke == "transparent" && s.Fill == "transparent" {
+		err = InvalidShapeFillStrokeError("Both fill and stroke cannot be transparent")
+		return
+	}
+
 	if s.ShapeType == PATH {
 		geometry, err = s.getPathGeometry()
 	} else {
@@ -406,6 +417,7 @@ type ShapeGeometry interface {
 type PathGeometry struct {
 	ShapeSvgString string
 	Fill           string
+	Stroke         string
 
 	VertexSets      []VertexSet
 	LineSegmentSets []LineSegmentSet
@@ -562,6 +574,7 @@ func (s PathGeometry) containsVertex(vertices []Point) bool {
 type CircleGeometry struct {
 	ShapeSvgString string
 	Fill           string
+	Stroke         string
 
 	Radius int64
 	Center Point

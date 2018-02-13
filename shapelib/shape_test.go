@@ -273,13 +273,13 @@ func TestShapeValid(t *testing.T) {
 	xMax := uint32(100)
 	yMax := uint32(100)
 
-	shapeLineInBound := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5 "}
-	shapeOutOfMinBound := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 h -7"}
-	shapeOutOfMaxBound := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 7 5 h 10000000"}
-	shapeSelfIntersectTrans := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
-	shapeSelfIntersectNonTrans := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
-	shapeCircleInBound := Shape{ShapeType: CIRCLE, ShapeSvgString: "X 10 Y 10 R 5"}
-	shapeCircleOutOfBound := Shape{ShapeType: CIRCLE, ShapeSvgString: "X 100 Y 100 R 1500"}
+	shapeLineInBound := Shape{ShapeType: PATH, Stroke: "non-transparent", Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5 "}
+	shapeOutOfMinBound := Shape{ShapeType: PATH, Stroke: "non-transparent", Fill: "transparent", ShapeSvgString: "M 5 5 h -7"}
+	shapeOutOfMaxBound := Shape{ShapeType: PATH, Stroke: "non-transparent", Fill: "transparent", ShapeSvgString: "M 7 5 h 10000000"}
+	shapeSelfIntersectTrans := Shape{ShapeType: PATH, Stroke: "non-transparent", Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
+	shapeSelfIntersectNonTrans := Shape{ShapeType: PATH, Stroke: "non-transparent", Fill: "non-transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
+	shapeCircleInBound := Shape{ShapeType: CIRCLE, Stroke: "non-transparent", Fill: "non-transparent", ShapeSvgString: "X 10 Y 10 R 5"}
+	shapeCircleOutOfBound := Shape{ShapeType: CIRCLE, Stroke: "non-transparent", Fill: "non-transparent", ShapeSvgString: "X 100 Y 100 R 1500"}
 
 	if valid, _, err := shapeLineInBound.IsValid(xMax, yMax); valid != true {
 		t.Error("Expected valid shape, got", err)

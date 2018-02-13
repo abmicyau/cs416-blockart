@@ -128,7 +128,7 @@ type Operation struct {
 	Shape       shapelib.Shape
 	InkCost     uint32
 	ValidateNum uint8
-  TimeStamp   int64
+	TimeStamp   int64
 }
 
 type OperationRecord struct {
@@ -582,7 +582,7 @@ func (m *Miner) validateNewShape(s shapelib.Shape) (inkCost uint32, err error) {
 		// Check against all unmined, unvalidated, and validated operations
 		if overlaps, hash := m.hasOverlappingShape(s, geo); overlaps {
 			err = errorLib.ShapeOverlapError(hash)
-            return
+			return
 		}
 	}
 	return
@@ -928,7 +928,7 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		return
 	}
 
-	//validateNum := request.Payload[0].(uint8)
+	validateNum := request.Payload[0].(uint8)
 	shapeType := request.Payload[1].(shapelib.ShapeType)
 	shapeSvgString := request.Payload[2].(string)
 	fill := strings.Trim(request.Payload[3].(string), " ")
@@ -942,9 +942,35 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		Owner:          m.pubKeyString}
 
 	inkCost, err := m.validateNewShape(shape)
-	response.Error = err
+	if err != nil {
+		response.Error = err
+		return
+	}
+
+	op := Operation{
+		Type:        ADD,
+		Shape:       shape,
+		InkCost:     inkCost,
+		ValidateNum: validateNum,
+		TimeStamp:   time.Now().UnixNano()}
+
+	encodedOp, err := json.Marshal(op)
+	checkError(err)
+	_opSig := []byte(encodedOp)
+	_, _, err = ecdsa.Sign(rand.Reader, &m.privKey, _opSig)
+	checkError(err)
+	opSig := string(_opSig)
+
+	opRecord := OperationRecord{
+		Op:           op,
+		OpSig:        opSig,
+		PubKeyString: m.pubKeyString}
+
+	m.unminedOps[opSig] = &opRecord
+
+	response.Error = nil
 	response.Payload = make([]interface{}, 3)
-	response.Payload[0] = ""
+	response.Payload[0] = opSig
 	response.Payload[1] = ""
 	response.Payload[2] = m.inkAccounts[m.pubKeyString] - inkCost
 

@@ -711,7 +711,7 @@ func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) (err 
 
 	if validNonce && validSignature {
 		delete(m.nonces, nonce)
-		response.Error = NO_ERROR
+		response.Error = nil
 		response.Payload = make([]interface{}, 3)
 		token := getRand256()
 		m.tokens[token] = true
@@ -927,7 +927,7 @@ func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) er
 		response.Error = errorLib.InvalidBlockHashError(hash)
 		return nil
 	}
-	response.Error = NO_ERROR
+	response.Error = nil
 	response.Payload = make([]interface{}, 1)
 	response.Payload[0] = children
 

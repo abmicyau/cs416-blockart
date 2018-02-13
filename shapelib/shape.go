@@ -27,7 +27,7 @@ type PathCommand struct {
 type CircleCommand struct {
 	CmdType string
 
-	Val uint32
+	Val int64
 }
 
 // </COMMAND>
@@ -81,13 +81,13 @@ func (s *Shape) getCircleCommands() (commands []CircleCommand, err error) {
 		switch cmdType {
 		case "X", "x":
 			command.CmdType = cmdType
-			command.Val = uint32(val)
+			command.Val = int64(val)
 		case "Y", "y":
 			command.CmdType = cmdType
-			command.Val = uint32(val)
+			command.Val = int64(val)
 		case "R", "r":
 			command.CmdType = cmdType
-			command.Val = uint32(val)
+			command.Val = int64(val)
 		default:
 			err = InvalidShapeSvgStringError(s.ShapeSvgString)
 			return
@@ -236,15 +236,19 @@ func (s *Shape) getCircleGeometry() (geometry CircleGeometry, err error) {
 
 		switch command.CmdType {
 		case "X", "x":
-
+			geometry.Center.X = int64(command.Val)
 		case "Y", "y":
-
+			geometry.Center.Y = int64(command.Val)
 		case "R", "r":
-
+			geometry.Radius = command.Val
 		default:
 			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+			return
 		}
 	}
+
+	geometry.Min.X, geometry.Min.Y = geometry.Center.X-geometry.Radius, geometry.Center.Y-geometry.Radius
+	geometry.Max.X, geometry.Max.Y = geometry.Center.X+geometry.Radius, geometry.Center.Y+geometry.Radius
 
 	return
 }
@@ -549,7 +553,7 @@ type CircleGeometry struct {
 	ShapeSvgString string
 	Fill           string
 
-	Radius uint32
+	Radius int64
 	Center Point
 	Min    Point
 	Max    Point

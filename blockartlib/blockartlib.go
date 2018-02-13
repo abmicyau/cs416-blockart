@@ -391,8 +391,47 @@ func (c CanvasInstance) GetInk() (inkRemaining uint32, err error) {
 // - DisconnectedError
 // - ShapeOwnerError
 func (c CanvasInstance) DeleteShape(validateNum uint8, shapeHash string) (inkRemaining uint32, err error) {
-	// TODO
-	return 0, nil
+	request := new(ArtnodeRequest)
+	response := new(MinerResponse)
+	request.Token = c.Token
+	request.Payload = make([]interface{}, 2)
+	request.Payload[0] = shapeHash
+	request.Payload[1] = validateNum
+	err = c.Miner.Call("Miner.DeleteShape", request, response)
+	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+		err = DisconnectedError(c.MinerAddr)
+		return
+	} else if errorLib.IsType(response.Error, "ShapeOwnerError") {
+		err = ShapeOwnerError(shapeHash)
+		return
+	}
+
+	opSig := response.Payload[0].(string)
+	inkRemaining = response.Payload[1].(uint32)
+
+	request = new(ArtnodeRequest)
+	request.Token = c.Token
+	request.Payload = make([]interface{}, 1)
+	request.Payload[0] = opSig
+	response = new(MinerResponse)
+	for {
+		err = c.Miner.Call("Miner.OpValidated", request, response)
+
+		validated := response.Payload[0].(bool)
+		if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+			err = DisconnectedError(c.MinerAddr)
+			return
+		} else if response.Error != nil {
+			err = response.Error
+			return
+		} else if validated == true {
+			return
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	return
 }
 
 // Retrieves hashes contained by a specific block.

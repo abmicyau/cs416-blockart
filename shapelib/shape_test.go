@@ -18,34 +18,56 @@ func TestNormalizeSvgString(t *testing.T) {
 
 // Test command parsing
 func TestGetCommands(t *testing.T) {
-	shape := Shape{ShapeType: PATH, ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
-	commands, _ := shape.getPathCommands()
-	commandsExpected := []PathCommand{
+	path := Shape{ShapeType: PATH, ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
+	pathCommands, _ := path.getPathCommands()
+	pathCommandsExpected := []PathCommand{
 		PathCommand{"M", 10, 10},
 		PathCommand{"L", 5, 5},
 		PathCommand{"h", -3, 0},
 		PathCommand{"Z", 0, 0}}
 
-	for i := range commands {
-		svgCommand := commands[i]
-		commandExpected := commandsExpected[i]
+	for i := range pathCommands {
+		svgCommand := pathCommands[i]
+		pathCommandExpected := pathCommandsExpected[i]
 
-		if svgCommand.CmdType != commandExpected.CmdType {
-			t.Error("Expected "+commandExpected.CmdType+", got ", svgCommand.CmdType)
+		if svgCommand.CmdType != pathCommandExpected.CmdType {
+			t.Error("Expected "+pathCommandExpected.CmdType+", got ", svgCommand.CmdType)
 		}
 
-		if svgCommand.X != commandExpected.X {
-			t.Error("Expected "+strconv.Itoa(int(commandExpected.X))+", got ", strconv.Itoa(int(svgCommand.X)))
+		if svgCommand.X != pathCommandExpected.X {
+			t.Error("Expected "+strconv.Itoa(int(pathCommandExpected.X))+", got ", strconv.Itoa(int(svgCommand.X)))
 		}
 
-		if svgCommand.Y != commandExpected.Y {
-			t.Error("Expected "+strconv.Itoa(int(commandExpected.Y))+", got ", strconv.Itoa(int(svgCommand.Y)))
+		if svgCommand.Y != pathCommandExpected.Y {
+			t.Error("Expected "+strconv.Itoa(int(pathCommandExpected.Y))+", got ", strconv.Itoa(int(svgCommand.Y)))
+		}
+	}
+
+	circle := Shape{ShapeType: CIRCLE, ShapeSvgString: "X 10 Y 10 R 34"}
+	circleCommands, _ := circle.getCircleCommands()
+	circleCommandsExpected := []CircleCommand{
+		CircleCommand{"X", 10},
+		CircleCommand{"Y", 10},
+		CircleCommand{"R", 34}}
+
+	for i := range circleCommands {
+		svgCommand := circleCommands[i]
+		circleCommandExpected := circleCommandsExpected[i]
+
+		if svgCommand.CmdType != circleCommandExpected.CmdType {
+			t.Error("Expected "+circleCommandExpected.CmdType+", got ", svgCommand.CmdType)
+		}
+
+		if svgCommand.Val != circleCommandExpected.Val {
+			t.Error("Expected "+strconv.Itoa(int(circleCommandExpected.Val))+", got ", strconv.Itoa(int(svgCommand.Val)))
 		}
 	}
 }
 
 // Test get geometry
-func TestGetGeometry(t *testing.T) {
+func TestGetPathGeometry(t *testing.T) {
+	shapeCircle1 := Shape{ShapeType: CIRCLE, ShapeSvgString: "X 10 Y 10 R 34"}
+	shapeCircle2 := Shape{ShapeType: CIRCLE, ShapeSvgString: "M 10 10 X 10 Y 10 R 34"}
 	shapeTransClosed := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
 	shapeTransOpen1 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
 	shapeTransOpen2 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 M 10 10 h 3 l -1 3"}
@@ -81,6 +103,14 @@ func TestGetGeometry(t *testing.T) {
 	if _, err := shapeFilledOpen.GetGeometry(); err == nil {
 		t.Error("Expected error for filled open shape, got none")
 	}
+
+	if _, err := shapeCircle1.GetGeometry(); err != nil {
+		t.Error("Expected no error for circle, got ", err)
+	}
+
+	if _, err := shapeCircle2.GetGeometry(); err == nil {
+		t.Error("Expected error for circle, got none")
+	}
 }
 
 // Test vertices generated from commands
@@ -89,8 +119,8 @@ func TestGetVertices(t *testing.T) {
 	shapeOpen := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
 	_geoClosed, _ := shapeClosed.GetGeometry()
 	_geoOpen, _ := shapeOpen.GetGeometry()
-	geoClosed, _ := _geoClosed.(PathGeometry)
-	geoOpen, _ := _geoOpen.(PathGeometry)
+	geoClosed, _ := interface{}(_geoClosed).(PathGeometry)
+	geoOpen, _ := interface{}(_geoOpen).(PathGeometry)
 
 	vertices := geoClosed.VertexSets[0]
 	verticesExpected := []Point{
@@ -136,8 +166,8 @@ func TestGetLineSegments(t *testing.T) {
 	shapeOpen := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
 	_geoClosed, _ := shapeClosed.GetGeometry()
 	_geoOpen, _ := shapeOpen.GetGeometry()
-	geoClosed, _ := _geoClosed.(PathGeometry)
-	geoOpen, _ := _geoOpen.(PathGeometry)
+	geoClosed, _ := interface{}(_geoClosed).(PathGeometry)
+	geoOpen, _ := interface{}(_geoOpen).(PathGeometry)
 
 	lineSegments := getLineSegments(geoClosed.VertexSets[0])
 	lineSegmentsExpected := []LineSegment{
@@ -207,9 +237,9 @@ func TestLineOverlap(t *testing.T) {
 	_geo1, _ := shape1.GetGeometry()
 	_geo2, _ := shape2.GetGeometry()
 	_geo3, _ := shape3.GetGeometry()
-	geo1, _ := _geo1.(PathGeometry)
-	geo2, _ := _geo2.(PathGeometry)
-	geo3, _ := _geo3.(PathGeometry)
+	geo1, _ := interface{}(_geo1).(PathGeometry)
+	geo2, _ := interface{}(_geo2).(PathGeometry)
+	geo3, _ := interface{}(_geo3).(PathGeometry)
 
 	lineSegments1 := getLineSegments(geo1.VertexSets[0])
 	lineSegments2 := getLineSegments(geo2.VertexSets[0])
@@ -248,29 +278,34 @@ func TestShapeValid(t *testing.T) {
 	shapeOutOfMaxBound := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 7 5 h 10000000"}
 	shapeSelfIntersectTrans := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
 	shapeSelfIntersectNonTrans := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
-	geoLineInBound, _ := shapeLineInBound.GetGeometry()
-	geoOutOfMinBound, _ := shapeOutOfMinBound.GetGeometry()
-	geoOutOfMaxBound, _ := shapeOutOfMaxBound.GetGeometry()
-	geoSelfIntersectTrans, _ := shapeSelfIntersectTrans.GetGeometry()
-	geoSelfIntersectNonTrans, _ := shapeSelfIntersectNonTrans.GetGeometry()
+	shapeCircleInBound := Shape{ShapeType: CIRCLE, ShapeSvgString: "X 10 Y 10 R 5"}
+	shapeCircleOutOfBound := Shape{ShapeType: CIRCLE, ShapeSvgString: "X 100 Y 100 R 1500"}
 
-	if valid, err := geoLineInBound.isValid(xMax, yMax); valid != true {
+	if valid, _, err := shapeLineInBound.IsValid(xMax, yMax); valid != true {
 		t.Error("Expected valid shape, got", err)
 	}
 
-	if valid, err := geoSelfIntersectTrans.isValid(xMax, yMax); valid != true {
+	if valid, _, err := shapeSelfIntersectTrans.IsValid(xMax, yMax); valid != true {
 		t.Error("Expected valid shape, got", err)
 	}
 
-	if valid, err := geoOutOfMinBound.isValid(xMax, yMax); valid != false || err == nil {
+	if valid, _, err := shapeOutOfMinBound.IsValid(xMax, yMax); valid != false || err == nil {
 		t.Error("Expected invalid shape, got valid")
 	}
 
-	if valid, err := geoOutOfMaxBound.isValid(xMax, yMax); valid != false || err == nil {
+	if valid, _, err := shapeOutOfMaxBound.IsValid(xMax, yMax); valid != false || err == nil {
 		t.Error("Expected invalid shape, got valid")
 	}
 
-	if valid, err := geoSelfIntersectNonTrans.isValid(xMax, yMax); valid != false || err == nil {
+	if valid, _, err := shapeSelfIntersectNonTrans.IsValid(xMax, yMax); valid != false || err == nil {
+		t.Error("Expected invalid shape, got valid")
+	}
+
+	if valid, _, err := shapeCircleInBound.IsValid(xMax, yMax); valid != true {
+		t.Error("Expected valid shape, got", err)
+	}
+
+	if valid, _, err := shapeCircleOutOfBound.IsValid(xMax, yMax); valid != false || err == nil {
 		t.Error("Expected invalid shape, got valid")
 	}
 }

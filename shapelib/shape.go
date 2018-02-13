@@ -40,7 +40,6 @@ type CircleCommand struct {
 type ShapeType int
 
 const (
-	// Path shape.
 	PATH ShapeType = iota
 	CIRCLE
 )
@@ -54,16 +53,32 @@ type Shape struct {
 	Stroke         string
 }
 
+func (s Shape) isPath() bool {
+	return s.ShapeType == PATH
+}
+
+func (s Shape) isCircle() bool {
+	return s.ShapeType == CIRCLE
+}
+
 // Determines whether the shape is valid
-func (s *Shape) IsValid(xMax uint32, yMax uint32) (valid bool, geometry ShapeGeometry, err error) {
-	if geometry, err = s.GetGeometry(); err == nil {
+func (s Shape) IsValid(xMax uint32, yMax uint32) (valid bool, geometry ShapeGeometry, err error) {
+	if s.ShapeType == PATH {
+		geometry, err = s.getPathGeometry()
+	} else {
+		geometry, err = s.getCircleGeometry()
+	}
+
+	if err == nil {
 		valid, err = geometry.isValid(xMax, yMax)
+	} else {
+		return
 	}
 
 	return
 }
 
-func (s *Shape) getCircleCommands() (commands []CircleCommand, err error) {
+func (s Shape) getCircleCommands() (commands []CircleCommand, err error) {
 	normSvg := normalizeSvgString(s.ShapeSvgString)
 	for {
 		command := CircleCommand{}
@@ -71,12 +86,7 @@ func (s *Shape) getCircleCommands() (commands []CircleCommand, err error) {
 		re := regexp.MustCompile("(^.+?)([a-zA-Z])(.*)")
 		cmdString := strings.Trim(re.ReplaceAllString(normSvg, "$1"), " ")
 
-		if len(cmdString) > 2 {
-			err = InvalidShapeSvgStringError(s.ShapeSvgString)
-			return
-		}
-
-		val, _ := strconv.Atoi(string(cmdString[1]))
+		val, _ := strconv.Atoi(string(cmdString[1:]))
 		cmdType := string(cmdString[0])
 		switch cmdType {
 		case "X", "x":
@@ -105,7 +115,7 @@ func (s *Shape) getCircleCommands() (commands []CircleCommand, err error) {
 	return
 }
 
-func (s *Shape) getPathCommands() (commands []PathCommand, err error) {
+func (s Shape) getPathCommands() (commands []PathCommand, err error) {
 	normSvg := normalizeSvgString(s.ShapeSvgString)
 	for {
 		command := PathCommand{}
@@ -208,18 +218,18 @@ func (s *Shape) getPathCommands() (commands []PathCommand, err error) {
 	return
 }
 
-// Gets the shape geometry of a a provided shape
-func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
-	if s.ShapeType == CIRCLE {
-
-	} else if s.ShapeType == PATH {
+//Gets the shape geometry of a a provided shape
+func (s Shape) GetGeometry() (geometry ShapeGeometry, err error) {
+	if s.isCircle() {
+		geometry, err = s.getCircleGeometry()
+	} else if s.isPath() {
 		geometry, err = s.getPathGeometry()
 	}
 
 	return
 }
 
-func (s *Shape) getCircleGeometry() (geometry CircleGeometry, err error) {
+func (s Shape) getCircleGeometry() (geometry CircleGeometry, err error) {
 	commands, err := s.getCircleCommands()
 	if err != nil {
 		return
@@ -253,7 +263,7 @@ func (s *Shape) getCircleGeometry() (geometry CircleGeometry, err error) {
 	return
 }
 
-func (s *Shape) getPathGeometry() (geometry PathGeometry, err error) {
+func (s Shape) getPathGeometry() (geometry PathGeometry, err error) {
 	commands, err := s.getPathCommands()
 	if err != nil {
 		return
@@ -564,8 +574,11 @@ func (g CircleGeometry) GetInkCost() (inkUnits uint64) {
 	return 0
 }
 func (g CircleGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
-	//TODO
-	return false, nil
+	if g.Min.inBound(xMax, yMax) && g.Max.inBound(xMax, yMax) {
+		return true, nil
+	} else {
+		return false, new(OutOfBoundsError)
+	}
 }
 func (g CircleGeometry) HasOverlap(_s ShapeGeometry) bool {
 	//TODO

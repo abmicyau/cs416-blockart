@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/rpc"
 	"os"
+	"time"
 
 	errorLib "../errorlib"
 )
@@ -306,10 +307,32 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 	}
 
 	shapeHash = response.Payload[0].(string)
-	blockHash = response.Payload[1].(string)
-	inkRemaining = response.Payload[0].(uint32)
+	inkRemaining = response.Payload[1].(uint32)
 
-	return shapeHash, blockHash, inkRemaining, nil
+	request = new(ArtnodeRequest)
+	request.Token = c.Token
+	request.Payload = make([]interface{}, 1)
+	request.Payload[0] = shapeHash
+	response = new(MinerResponse)
+	for {
+		err = c.Miner.Call("Miner.OpValidated", request, response)
+
+		validated := response.Payload[0].(bool)
+		blockHash = response.Payload[1].(string)
+		if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+			err = DisconnectedError(c.MinerAddr)
+			return
+		} else if response.Error != nil {
+			err = response.Error
+			return
+		} else if validated == true {
+			return
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	return
 }
 
 // Returns the encoding of the shape as an svg string.

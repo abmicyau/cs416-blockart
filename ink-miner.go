@@ -967,8 +967,36 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 	response.Error = nil
 	response.Payload = make([]interface{}, 3)
 	response.Payload[0] = opSig
+	response.Payload[1] = m.inkAccounts[m.pubKeyString] - inkCost
+
+	return
+}
+
+func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (err error) {
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = errorLib.InvalidTokenError(token)
+		return
+	}
+
+	opSig := request.Payload[0].(string)
+	op := m.validatedOps[opSig]
+
+	response.Payload = make([]interface{}, 2)
+	response.Payload[0] = false
 	response.Payload[1] = ""
-	response.Payload[2] = m.inkAccounts[m.pubKeyString] - inkCost
+	if op == nil {
+		response.Payload[0] = false
+	} else {
+		blockHash, err := m.getOpBlockHash(opSig)
+		if err != nil {
+			response.Error = err
+		} else {
+			response.Payload[0] = true
+			response.Payload[1] = blockHash
+		}
+	}
 
 	return
 }
@@ -1025,7 +1053,27 @@ func (m *Miner) validateOp(opRec OperationRecord) bool {
 	return true
 }
 
-// </RPC METHODS>
+func (m *Miner) getOpBlockHash(opSig string) (string, error) {
+	hash := m.longestChainLastBlockHash
+	block := m.blockchain[hash]
+	blockNo := block.BlockNo
+	for blockNo > 1 {
+		ops := block.Records
+		for _, op := range ops {
+			if op.OpSig == opSig {
+				return hash, nil
+			}
+		}
+
+		hash = block.PrevHash
+		block = m.blockchain[hash]
+		blockNo = block.BlockNo
+	}
+
+	return "", errorLib.InvalidShapeHashError(opSig)
+}
+
+// </HELPER METHODS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////////////////

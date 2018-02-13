@@ -64,16 +64,51 @@ func (s *Shape) IsValid(xMax uint32, yMax uint32) (valid bool, geometry ShapeGeo
 }
 
 func (s *Shape) getCircleCommands() (commands []CircleCommand, err error) {
+	normSvg := normalizeSvgString(s.ShapeSvgString)
+	for {
+		command := CircleCommand{}
+
+		re := regexp.MustCompile("(^.+?)([a-zA-Z])(.*)")
+		cmdString := strings.Trim(re.ReplaceAllString(normSvg, "$1"), " ")
+
+		if len(cmdString) > 2 {
+			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+			return
+		}
+
+		val, _ := strconv.Atoi(string(cmdString[1]))
+		cmdType := string(cmdString[0])
+		switch cmdType {
+		case "X", "x":
+			command.CmdType = cmdType
+			command.Val = uint32(val)
+		case "Y", "y":
+			command.CmdType = cmdType
+			command.Val = uint32(val)
+		case "R", "r":
+			command.CmdType = cmdType
+			command.Val = uint32(val)
+		default:
+			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+			return
+		}
+
+		commands = append(commands, command)
+
+		normSvg = strings.Replace(normSvg, cmdString, "", 1)
+		normSvg = strings.Trim(normSvg, " ")
+		if normSvg == "" {
+			break
+		}
+	}
 
 	return
 }
 
 func (s *Shape) getPathCommands() (commands []PathCommand, err error) {
-	var _commands []PathCommand
-
 	normSvg := normalizeSvgString(s.ShapeSvgString)
 	for {
-		_command := PathCommand{}
+		command := PathCommand{}
 
 		re := regexp.MustCompile("(^.+?)([a-zA-Z])(.*)")
 		cmdString := strings.Trim(re.ReplaceAllString(normSvg, "$1"), " ")
@@ -84,91 +119,90 @@ func (s *Shape) getPathCommands() (commands []PathCommand, err error) {
 		cmdType := string(cmdString[0])
 		switch cmdType {
 		case "M", "m":
-			_command.CmdType = cmdType
+			command.CmdType = cmdType
 
 			if len(pos) < 2 || posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else if s.Fill != "transparent" {
-				if pathCommandExists(PathCommand{CmdType: "M"}, _commands) || pathCommandExists(PathCommand{CmdType: "m"}, _commands) {
-					return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				if pathCommandExists(PathCommand{CmdType: "M"}, commands) || pathCommandExists(PathCommand{CmdType: "m"}, commands) {
+					err = InvalidShapeSvgStringError(s.ShapeSvgString)
+					return
 				}
 			}
 
-			_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-			_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
+			command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+			command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 		case "H":
-			_command.CmdType = "H"
+			command.CmdType = "H"
 
 			if posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.X, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "V":
-			_command.CmdType = "V"
+			command.CmdType = "V"
 
 			if posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "L":
-			_command.CmdType = "L"
+			command.CmdType = "L"
 
 			if len(pos) < 2 || posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
+				command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 			}
 		case "h":
-			_command.CmdType = "h"
+			command.CmdType = "h"
 
 			if posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.X, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "v":
-			_command.CmdType = "v"
+			command.CmdType = "v"
 
 			if posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "l":
-			_command.CmdType = "l"
+			command.CmdType = "l"
 
 			if len(pos) < 2 || posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
+				command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 			}
 		case "Z", "z":
-			_command.CmdType = cmdType
+			command.CmdType = cmdType
 		default:
 			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+			return
 		}
 
-		if err != nil {
-			break
-		}
-
-		if _command.CmdType != "" {
-			_commands = append(_commands, _command)
-		}
+		commands = append(commands, command)
 
 		normSvg = strings.Replace(normSvg, cmdString, "", 1)
 		normSvg = strings.Trim(normSvg, " ")
 		if normSvg == "" {
 			break
 		}
-	}
-
-	if err == nil {
-		commands = _commands
 	}
 
 	return

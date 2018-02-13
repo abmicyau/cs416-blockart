@@ -1083,16 +1083,38 @@ func (m *Miner) lengthLongestChain(blockhash string) int {
 // Asserts the following about a given block and blockHash:
 // - blockhash matches POW difficulty and nonce is correct
 // - the given block points to a valid hash in the blockchain
-// TODO: operation validations
 func (m *Miner) validateBlock(block *Block, blockHash string) bool {
 	encodedBlock, err := json.Marshal(*block)
 	checkError(err)
 	newBlockHash := md5Hash(encodedBlock)
-	if m.hashMatchesPOWDifficulty(newBlockHash) && blockHash == newBlockHash && m.blockchain[block.PrevHash] != nil {
-		logger.Println("Received Block hashes to correct hash")
+	if m.hashMatchesPOWDifficulty(newBlockHash) && m.validateOpIntegrity(block) && blockHash == newBlockHash && m.blockchain[block.PrevHash] != nil  {
+		logger.Println("Received Block has been validated")
 		return true
 	}
 	return false
+}
+
+// Helper function to assert that each op in a block is signed properly,
+// shape is valid, and the public key has enough ink.
+func (m *Miner) validateOpIntegrity(block *Block) bool {
+	for _, opRecord := range block.Records {
+		if m.validateSignature(opRecord) {
+			_, err := m.validateNewShape(opRecord.Op.Shape)
+			if err != nil {
+				return false
+			}
+		} else {
+			return false;
+		}
+	}
+	return true
+}
+
+func (m *Miner) validateSignature(opRecord OperationRecord) bool {
+	data, _ := json.Marshal(opRecord.Op)
+	sig := new(Signature)
+	json.Unmarshal([]byte(opRecord.OpSig), &sig)
+	return ecdsa.Verify(&m.pubKey, data, sig.R, sig.S)
 }
 
 // Asserts the following about a given OperationRecord:

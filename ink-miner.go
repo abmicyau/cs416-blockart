@@ -137,6 +137,11 @@ type OperationRecord struct {
 	PubKeyString string
 }
 
+type Signature struct {
+	R *big.Int
+	S *big.Int
+}
+
 type MinerInfo struct {
 	Address net.Addr
 	Key     ecdsa.PublicKey
@@ -580,7 +585,6 @@ func (m *Miner) validateNewShape(s shapelib.Shape) (inkCost uint32, err error) {
 			return
 		}
 	}
-
 	return
 }
 
@@ -950,55 +954,78 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		ValidateNum: validateNum,
 		TimeStamp:   time.Now().UnixNano()}
 
-	encodedOp, err := json.Marshal(op)
-	checkError(err)
-	_opSig := []byte(encodedOp)
-	_, _, err = ecdsa.Sign(rand.Reader, &m.privKey, _opSig)
-	checkError(err)
-	opSig := string(_opSig)
-
-	opRecord := OperationRecord{
-		Op:           op,
-		OpSig:        opSig,
-		PubKeyString: m.pubKeyString}
-
-	m.unminedOps[opSig] = &opRecord
+    opSig := m.addOperationRecord(&op)
 
 	response.Error = nil
-	response.Payload = make([]interface{}, 3)
+	response.Payload = make([]interface{}, 2)
 	response.Payload[0] = opSig
 	response.Payload[1] = m.inkAccounts[m.pubKeyString] - inkCost
 
 	return
 }
 
-func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (err error) {
+func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (err error) {
 	token := request.Token
 	_, validToken := m.tokens[token]
 	if !validToken {
 		response.Error = errorLib.InvalidTokenError(token)
-		return
+		return nil
 	}
 
-	opSig := request.Payload[0].(string)
-	op := m.validatedOps[opSig]
+	shapeHash := request.Payload[0].(string)
+	validateNum := request.Payload[1].(uint8)
 
-	response.Payload = make([]interface{}, 2)
-	response.Payload[0] = false
-	response.Payload[1] = ""
-	if op == nil {
-		response.Payload[0] = false
-	} else {
-		blockHash, err := m.getOpBlockHash(opSig)
-		if err != nil {
-			response.Error = err
-		} else {
-			response.Payload[0] = true
-			response.Payload[1] = blockHash
-		}
-	}
+    opRecord := m.validatedOps[shapeHash]
+    if opRecord == nil || opRecord.PubKeyString != m.pubKeyString{
+        response.Error = errorLib.ShapeOwnerError(shapeHash)
+        return
+    }
 
-	return
+    op := Operation{
+        Type:        REMOVE,
+        // TODO: We need to set the fill to white here to 'erase' the shape
+        Shape:       opRecord.Op.Shape,
+        InkCost:     opRecord.Op.InkCost,
+        ValidateNum: validateNum,
+        TimeStamp:   time.Now().UnixNano()}
+
+    opSig := m.addOperationRecord(&op)
+
+	response.Error = nil
+    response.Payload = make([]interface{}, 2)
+    response.Payload[0] = opSig
+    response.Payload[1] = m.inkAccounts[m.pubKeyString] + opRecord.Op.InkCost
+
+    return
+}
+
+func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (err error) {
+    token := request.Token
+    _, validToken := m.tokens[token]
+    if !validToken {
+        response.Error = errorLib.InvalidTokenError(token)
+        return
+    }
+
+    opSig := request.Payload[0].(string)
+    op := m.validatedOps[opSig]
+
+    response.Payload = make([]interface{}, 2)
+    response.Payload[0] = false
+    response.Payload[1] = ""
+    if op == nil {
+        response.Payload[0] = false
+    } else {
+        blockHash, err := m.getOpBlockHash(opSig)
+        if err != nil {
+            response.Error = err
+        } else {
+            response.Payload[0] = true
+            response.Payload[1] = blockHash
+        }
+    }
+
+    return
 }
 
 // </RPC METHODS>
@@ -1008,6 +1035,27 @@ func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (e
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>
+
+func (m *Miner) addOperationRecord(op *Operation) (opSig string) {
+    encodedOp, err := json.Marshal(*op)
+    checkError(err)
+    r, s, err := ecdsa.Sign(rand.Reader, &m.privKey, encodedOp)
+    checkError(err)
+    sig := Signature{r, s}
+    encodedSig, err := json.Marshal(sig)
+    checkError(err)
+    opSig = string(encodedSig)
+
+    opRecord := OperationRecord{
+        Op:           *op,
+        OpSig:        opSig,
+        PubKeyString: m.pubKeyString}
+
+    m.unminedOps[opSig] = &opRecord
+    m.disseminateOpToConnectedMiners(&opRecord)
+
+    return
+}
 
 // Counts the length of the block chain given a block hash
 func (m *Miner) lengthLongestChain(blockhash string) int {

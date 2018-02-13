@@ -7,19 +7,12 @@ import (
 	"strconv"
 	"strings"
 
-	. "../errorlib"
+	//. "../errorlib"
+	. "github.com/alfaeddie/proj1_b0z8_b4n0b_i5n8_m9r8/errorlib"
 )
 
 ////////////////////////////////////////////////////////////////////////////////////////////
-// <OBJECT DEFINTIONS>
-
-// Represents a type of shape in the BlockArt system.
-type ShapeType int
-
-const (
-	// Path shape.
-	PATH ShapeType = iota
-)
+// <COMMAND>
 
 // Represents a command with type(M, H, L, m, h, l, etc.)
 // and specified (x, y) coordinate
@@ -30,15 +23,20 @@ type Command struct {
 	Y int64
 }
 
-// Represents a point with (x, y) coordinate
-type Point struct {
-	X int64
-	Y int64
-}
+// </COMMAND>
+////////////////////////////////////////////////////////////////////////////////////////////
 
-func (p Point) inBound(xMax uint32, yMax uint32) bool {
-	return p.X > 0 && p.Y > 0 && p.X < int64(xMax) && p.Y < int64(yMax)
-}
+////////////////////////////////////////////////////////////////////////////////////////////
+// <SHAPE>
+
+// Represents a type of shape in the BlockArt system.
+type ShapeType int
+
+const (
+	// Path shape.
+	PATH ShapeType = iota
+	CIRCLE
+)
 
 type Shape struct {
 	Owner string
@@ -172,125 +170,146 @@ func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 		return
 	}
 
-	geometry.ShapeSvgString, geometry.Fill = s.ShapeSvgString, s.Fill
-	geometry.Min, geometry.Max = Point{}, Point{}
-	absPos, relPos := Point{0, 0}, Point{0, 0}
+	if s.ShapeType == PATH {
+		_geometry := PathGeometry{
+			ShapeSvgString: s.ShapeSvgString,
+			Fill:           s.Fill,
+			Min:            Point{},
+			Max:            Point{}}
 
-	var currentVertices []Point
-	for i := range commands {
-		_command := commands[i]
+		absPos, relPos := Point{0, 0}, Point{0, 0}
+		var currentVertices []Point
+		for i := range commands {
+			_command := commands[i]
 
-		switch _command.CmdType {
-		case "M":
-			absPos.X, absPos.Y = _command.X, _command.Y
-			relPos.X, relPos.Y = _command.X, _command.Y
+			switch _command.CmdType {
+			case "M":
+				absPos.X, absPos.Y = _command.X, _command.Y
+				relPos.X, relPos.Y = _command.X, _command.Y
 
-			if len(currentVertices) > 0 {
-				geometry.VertexSets = append(geometry.VertexSets, currentVertices)
+				if len(currentVertices) > 0 {
+					_geometry.VertexSets = append(_geometry.VertexSets, currentVertices)
+					currentVertices = []Point{}
+				}
+
+				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+			case "m":
+				absPos.X, absPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+				relPos.X, relPos.Y = absPos.X, absPos.Y
+
+				if len(currentVertices) > 0 {
+					_geometry.VertexSets = append(_geometry.VertexSets, currentVertices)
+					currentVertices = []Point{}
+				}
+
+				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+			case "H":
+				relPos.X = _command.X
+
+				currentVertices = append(currentVertices, Point{relPos.X, absPos.Y})
+			case "V":
+				relPos.Y = _command.Y
+
+				currentVertices = append(currentVertices, Point{absPos.X, relPos.Y})
+			case "L":
+				relPos.X, relPos.Y = _command.X, _command.Y
+
+				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+			case "h":
+				relPos.X = relPos.X + _command.X
+
+				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+			case "v":
+				relPos.Y = relPos.Y + _command.Y
+
+				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+			case "l":
+				relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+
+				currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
+			case "Z":
+				currentVertices = append(currentVertices, currentVertices[0])
+
+				_geometry.VertexSets = append(_geometry.VertexSets, currentVertices)
+				currentVertices = []Point{}
+			case "z":
+				currentVertices = append(currentVertices, currentVertices[0])
+
+				_geometry.VertexSets = append(_geometry.VertexSets, currentVertices)
 				currentVertices = []Point{}
 			}
 
-			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-		case "m":
-			absPos.X, absPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
-			relPos.X, relPos.Y = absPos.X, absPos.Y
+			if i == 0 {
+				_geometry.Min = relPos
+				_geometry.Max = relPos
+			} else {
+				if relPos.X < _geometry.Min.X {
+					_geometry.Min.X = relPos.X
+				} else if relPos.X > _geometry.Max.X {
+					_geometry.Max.X = relPos.X
+				}
 
-			if len(currentVertices) > 0 {
-				geometry.VertexSets = append(geometry.VertexSets, currentVertices)
-				currentVertices = []Point{}
-			}
-
-			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-		case "H":
-			relPos.X = _command.X
-
-			currentVertices = append(currentVertices, Point{relPos.X, absPos.Y})
-		case "V":
-			relPos.Y = _command.Y
-
-			currentVertices = append(currentVertices, Point{absPos.X, relPos.Y})
-		case "L":
-			relPos.X, relPos.Y = _command.X, _command.Y
-
-			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-		case "h":
-			relPos.X = relPos.X + _command.X
-
-			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-		case "v":
-			relPos.Y = relPos.Y + _command.Y
-
-			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-		case "l":
-			relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
-
-			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
-		case "Z":
-			currentVertices = append(currentVertices, currentVertices[0])
-
-			geometry.VertexSets = append(geometry.VertexSets, currentVertices)
-			currentVertices = []Point{}
-		case "z":
-			currentVertices = append(currentVertices, currentVertices[0])
-
-			geometry.VertexSets = append(geometry.VertexSets, currentVertices)
-			currentVertices = []Point{}
-		}
-
-		if i == 0 {
-			geometry.Min = relPos
-			geometry.Max = relPos
-		} else {
-			if relPos.X < geometry.Min.X {
-				geometry.Min.X = relPos.X
-			} else if relPos.X > geometry.Max.X {
-				geometry.Max.X = relPos.X
-			}
-
-			if relPos.Y < geometry.Min.Y {
-				geometry.Min.Y = relPos.Y
-			} else if relPos.Y > geometry.Max.Y {
-				geometry.Max.Y = relPos.Y
+				if relPos.Y < _geometry.Min.Y {
+					_geometry.Min.Y = relPos.Y
+				} else if relPos.Y > _geometry.Max.Y {
+					_geometry.Max.Y = relPos.Y
+				}
 			}
 		}
-	}
 
-	if len(currentVertices) > 0 {
-		geometry.VertexSets = append(geometry.VertexSets, currentVertices)
-	}
+		if len(currentVertices) > 0 {
+			_geometry.VertexSets = append(_geometry.VertexSets, currentVertices)
+		}
 
-	// Make sure its closed
-	if s.Fill != "transparent" {
-		if len(geometry.VertexSets) > 1 {
-			err = InvalidShapeSvgStringError(s.ShapeSvgString)
-		} else {
-			firstVertex := geometry.VertexSets[0][0]
-			lastVertex := geometry.VertexSets[0][len(geometry.VertexSets[0])-1]
-
-			if firstVertex != lastVertex {
+		// Make sure its closed
+		if s.Fill != "transparent" {
+			if len(_geometry.VertexSets) > 1 {
 				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+			} else {
+				firstVertex := _geometry.VertexSets[0][0]
+				lastVertex := _geometry.VertexSets[0][len(_geometry.VertexSets[0])-1]
+
+				if firstVertex != lastVertex {
+					err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				}
+			}
+
+			if err != nil {
+				return
 			}
 		}
 
-		if err != nil {
-			return
+		_geometry.LineSegmentSets = make([]LineSegmentSet, len(_geometry.VertexSets))
+		for i, vSet := range _geometry.VertexSets {
+			_geometry.LineSegmentSets[i] = getLineSegments(vSet)
 		}
-	}
 
-	geometry.LineSegmentSets = make([]LineSegmentSet, len(geometry.VertexSets))
-	for i, vSet := range geometry.VertexSets {
-		geometry.LineSegmentSets[i] = getLineSegments(vSet)
+		geometry = _geometry
 	}
 
 	return
 }
 
-type ShapeGeometry struct {
+// </SHAPE>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <SHAPE GEOMETRY>
+
+type ShapeGeometry interface {
+	GetInkCost() (inkUnits uint64)
+	isValid(xMax uint32, yMax uint32) (valid bool, err error)
+	HasOverlap(_s ShapeGeometry) bool
+	containsVertex(vertices []Point) bool
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////
+//			<PATH GEOMETRY>
+
+type PathGeometry struct {
 	ShapeSvgString string
 	Fill           string
 
-	// Vertices     []Point
-	// LineSegments []LineSegment
 	VertexSets      []VertexSet
 	LineSegmentSets []LineSegmentSet
 	Min             Point
@@ -300,7 +319,7 @@ type ShapeGeometry struct {
 type VertexSet []Point
 type LineSegmentSet []LineSegment
 
-func (s *ShapeGeometry) getAllLineSegments() (lineSegments []LineSegment) {
+func (s PathGeometry) getAllLineSegments() (lineSegments []LineSegment) {
 	for _, _lineSegments := range s.LineSegmentSets {
 		for _, lineSegment := range _lineSegments {
 			lineSegments = append(lineSegments, lineSegment)
@@ -310,7 +329,7 @@ func (s *ShapeGeometry) getAllLineSegments() (lineSegments []LineSegment) {
 	return
 }
 
-func (s *ShapeGeometry) getAllVertices() (vertices []Point) {
+func (s PathGeometry) getAllVertices() (vertices []Point) {
 	for _, _vertices := range s.VertexSets {
 		for _, vertex := range _vertices {
 			vertices = append(vertices, vertex)
@@ -322,7 +341,7 @@ func (s *ShapeGeometry) getAllVertices() (vertices []Point) {
 
 // Computes the ink required for the given shape according
 // to the fill specification.
-func (s *ShapeGeometry) GetInkCost() (inkUnits uint64) {
+func (s PathGeometry) GetInkCost() (inkUnits uint64) {
 	if s.Fill == "transparent" {
 		for _, lineSegments := range s.LineSegmentSets {
 			inkUnits = inkUnits + computePerimeter(lineSegments)
@@ -337,7 +356,7 @@ func (s *ShapeGeometry) GetInkCost() (inkUnits uint64) {
 // Determines if the following conditions hold:
 // - The shape is within the given bounding requirements
 // - The shape is non-overlapping if not transparent
-func (s *ShapeGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
+func (s PathGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 	valid = true
 
 	for _, vertex := range s.getAllVertices() {
@@ -371,23 +390,35 @@ func (s *ShapeGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error
 }
 
 // Determines if a proposed shape overlape this shape.
-func (s *ShapeGeometry) HasOverlap(_s ShapeGeometry) bool {
-	// Easy preliminary: does the bounding box of _s encompass s
-	if _s.Fill != "transparent" && (_s.Min.X <= s.Min.X && _s.Min.Y <= s.Min.Y) && (_s.Max.X >= s.Max.X && _s.Max.Y >= s.Max.Y) {
-		return true
+func (g PathGeometry) HasOverlap(_g ShapeGeometry) bool {
+	if _gP, ok := _g.(PathGeometry); ok {
+		return g.hasPathOverlap(_gP)
+	} else if _gC, ok := _g.(CircleGeometry); ok {
+		return g.hasCircleOverlap(_gC)
 	}
 
-	if intersectExists(s.getAllLineSegments(), _s.getAllLineSegments()) {
-		return true
-	} else if s.Fill != "transparent" && s.containsVertex(_s.getAllVertices()) {
-		return true
-	} else {
-		return false
+	return false
+}
+
+func (g PathGeometry) hasPathOverlap(_g PathGeometry) (overlap bool) {
+	if intersectExists(g.getAllLineSegments(), _g.getAllLineSegments()) {
+		overlap = true
+	} else if g.Fill != "transparent" && g.containsVertex(_g.getAllVertices()) {
+		overlap = true
+	} else if _g.Fill != "transparent" && _g.containsVertex(g.getAllVertices()) {
+		overlap = true
 	}
+
+	return
+}
+
+func (g PathGeometry) hasCircleOverlap(_g CircleGeometry) bool {
+	//TODO
+	return true
 }
 
 // Determines if any of the vertices are contained with a polygon, using a scanline.
-func (s *ShapeGeometry) containsVertex(vertices []Point) bool {
+func (s PathGeometry) containsVertex(vertices []Point) bool {
 	min := s.Min
 	max := s.Max
 	lineSegments := s.getAllLineSegments()
@@ -425,6 +456,63 @@ func (s *ShapeGeometry) containsVertex(vertices []Point) bool {
 
 	return false
 }
+
+//			</PATH GEOMETRY>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+//			<CIRCLE GEOMETRY>
+type CircleGeometry struct {
+	ShapeSvgString string
+	Fill           string
+
+	Radius uint32
+	Center Point
+	Min    Point
+	Max    Point
+}
+
+func (g CircleGeometry) GetInkCost() (inkUnits uint64) {
+	//TODO
+	return 0
+}
+func (g CircleGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
+	//TODO
+	return false, nil
+}
+func (g CircleGeometry) HasOverlap(_s ShapeGeometry) bool {
+	//TODO
+	return false
+}
+func (g CircleGeometry) containsVertex(vertices []Point) bool {
+	//TODO
+	return false
+}
+
+//			</CIRCLE GEOMETRY>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+// </SHAPE GEOMETRY>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <POINT>
+
+// Represents a point with (x, y) coordinate
+type Point struct {
+	X int64
+	Y int64
+}
+
+func (p Point) inBound(xMax uint32, yMax uint32) bool {
+	return p.X > 0 && p.Y > 0 && p.X < int64(xMax) && p.Y < int64(yMax)
+}
+
+// </POINT>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <LINE SEGMENT>
 
 // Represents a line segment with start and end points
 // and implicit equation format ax + by = c
@@ -527,7 +615,7 @@ func (l LineSegment) Intersects(_l LineSegment) bool {
 	}
 }
 
-// </OBJECT DEFINTIONS>
+// </LINE SEGMENT>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////////////////

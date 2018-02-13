@@ -18,7 +18,7 @@ func TestNormalizeSvgString(t *testing.T) {
 
 // Test command parsing
 func TestGetCommands(t *testing.T) {
-	shape := Shape{ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
+	shape := Shape{ShapeType: PATH, ShapeSvgString: "M 10 10 L 5 5 h -3 Z"}
 	commands, _ := shape.getCommands()
 	commandsExpected := []Command{
 		Command{"M", 10, 10},
@@ -46,13 +46,13 @@ func TestGetCommands(t *testing.T) {
 
 // Test get geometry
 func TestGetGeometry(t *testing.T) {
-	shapeTransClosed := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
-	shapeTransOpen1 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
-	shapeTransOpen2 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 M 10 10 h 3 l -1 3"}
-	shapeFilledClosed1 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
-	shapeFilledClosed2 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 L 10 10"}
-	shapeFilledClosed3 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 L 10 10 Z m 10 10 h 3 l -1 3 L 10 10 Z"}
-	shapeFilledOpen := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
+	shapeTransClosed := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
+	shapeTransOpen1 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
+	shapeTransOpen2 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 M 10 10 h 3 l -1 3"}
+	shapeFilledClosed1 := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
+	shapeFilledClosed2 := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 L 10 10"}
+	shapeFilledClosed3 := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 L 10 10 Z m 10 10 h 3 l -1 3 L 10 10 Z"}
+	shapeFilledOpen := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
 
 	if _, err := shapeTransClosed.GetGeometry(); err != nil {
 		t.Error("Expected no error for transparent closed shape, got: ", err)
@@ -85,10 +85,12 @@ func TestGetGeometry(t *testing.T) {
 
 // Test vertices generated from commands
 func TestGetVertices(t *testing.T) {
-	shapeClosed := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
-	shapeOpen := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
-	geoClosed, _ := shapeClosed.GetGeometry()
-	geoOpen, _ := shapeOpen.GetGeometry()
+	shapeClosed := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
+	shapeOpen := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
+	_geoClosed, _ := shapeClosed.GetGeometry()
+	_geoOpen, _ := shapeOpen.GetGeometry()
+	geoClosed, _ := _geoClosed.(PathGeometry)
+	geoOpen, _ := _geoOpen.(PathGeometry)
 
 	vertices := geoClosed.VertexSets[0]
 	verticesExpected := []Point{
@@ -130,10 +132,12 @@ func TestGetVertices(t *testing.T) {
 
 // Test line segments generated from vertices
 func TestGetLineSegments(t *testing.T) {
-	shapeClosed := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
-	shapeOpen := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
-	geoClosed, _ := shapeClosed.GetGeometry()
-	geoOpen, _ := shapeOpen.GetGeometry()
+	shapeClosed := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3 Z"}
+	shapeOpen := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 h 3 l -1 3"}
+	_geoClosed, _ := shapeClosed.GetGeometry()
+	_geoOpen, _ := shapeOpen.GetGeometry()
+	geoClosed, _ := _geoClosed.(PathGeometry)
+	geoOpen, _ := _geoOpen.(PathGeometry)
 
 	lineSegments := getLineSegments(geoClosed.VertexSets[0])
 	lineSegmentsExpected := []LineSegment{
@@ -197,12 +201,15 @@ func TestGetLineSegments(t *testing.T) {
 
 // Test line-to-line overlap
 func TestLineOverlap(t *testing.T) {
-	shape1 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5"}
-	shape2 := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 Z"}
-	shape3 := Shape{Fill: "transparent", ShapeSvgString: "M 7 5 L 5 10 v -2 Z"}
-	geo1, _ := shape1.GetGeometry()
-	geo2, _ := shape2.GetGeometry()
-	geo3, _ := shape3.GetGeometry()
+	shape1 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5"}
+	shape2 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 Z"}
+	shape3 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 7 5 L 5 10 v -2 Z"}
+	_geo1, _ := shape1.GetGeometry()
+	_geo2, _ := shape2.GetGeometry()
+	_geo3, _ := shape3.GetGeometry()
+	geo1, _ := _geo1.(PathGeometry)
+	geo2, _ := _geo2.(PathGeometry)
+	geo3, _ := _geo3.(PathGeometry)
 
 	lineSegments1 := getLineSegments(geo1.VertexSets[0])
 	lineSegments2 := getLineSegments(geo2.VertexSets[0])
@@ -236,11 +243,11 @@ func TestShapeValid(t *testing.T) {
 	xMax := uint32(100)
 	yMax := uint32(100)
 
-	shapeLineInBound := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5 "}
-	shapeOutOfMinBound := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 h -7"}
-	shapeOutOfMaxBound := Shape{Fill: "transparent", ShapeSvgString: "M 7 5 h 10000000"}
-	shapeSelfIntersectTrans := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
-	shapeSelfIntersectNonTrans := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
+	shapeLineInBound := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5 "}
+	shapeOutOfMinBound := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 h -7"}
+	shapeOutOfMaxBound := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 7 5 h 10000000"}
+	shapeSelfIntersectTrans := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
+	shapeSelfIntersectNonTrans := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}
 	geoLineInBound, _ := shapeLineInBound.GetGeometry()
 	geoOutOfMinBound, _ := shapeOutOfMinBound.GetGeometry()
 	geoOutOfMaxBound, _ := shapeOutOfMaxBound.GetGeometry()
@@ -270,13 +277,13 @@ func TestShapeValid(t *testing.T) {
 
 // Test ink usage
 func TestInkRequired(t *testing.T) {
-	shape1 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5"}                                // Line
-	shape2 := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}                  // Twisted Square
-	shape3 := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}                     // Square
-	shape4 := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                       // Triangle
-	shape5 := Shape{Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}     // Dracula teeth
-	shape6 := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth
-	shape7 := Shape{Fill: "transparent", ShapeSvgString: "M 10 10 l 5 5 M 20 20 l 5 5"}                  // Muliple moveto
+	shape1 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 L 5 5"}                                // Line
+	shape2 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 L 10 10 h -5 L 10 5 Z"}                  // Twisted Square
+	shape3 := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 5 5 h 5 v 5 h -5 Z"}                     // Square
+	shape4 := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                       // Triangle
+	shape5 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}     // Dracula teeth
+	shape6 := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth
+	shape7 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 l 5 5 M 20 20 l 5 5"}                  // Muliple moveto
 	geo1, _ := shape1.GetGeometry()
 	geo2, _ := shape2.GetGeometry()
 	geo3, _ := shape3.GetGeometry()
@@ -317,32 +324,32 @@ func TestInkRequired(t *testing.T) {
 
 // Test overlap
 func TestOverlap(t *testing.T) {
-	shapeTriangle := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                                // Triangle -- Transparent
-	shapeTriangleFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                      // Triangle -- Filled
-	shapeDracula := Shape{Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}           // Dracula teeth -- Transparent
-	shapeDraculaFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth -- Filled
+	shapeTriangle := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                                // Triangle -- Transparent
+	shapeTriangleFilled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                      // Triangle -- Filled
+	shapeDracula := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}           // Dracula teeth -- Transparent
+	shapeDraculaFilled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth -- Filled
 	geoTriangle, _ := shapeTriangle.GetGeometry()
 	geoTriangleFilled, _ := shapeTriangleFilled.GetGeometry()
 	geoDracula, _ := shapeDracula.GetGeometry()
 	geoDraculaFilled, _ := shapeDraculaFilled.GetGeometry()
 
 	// Test polygon surrounding shape
-	shapeSquare := Shape{Fill: "transparent", ShapeSvgString: "M 1 1 H 40 V -40 H -40 Z"}
+	shapeSquare := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 1 1 H 40 V -40 H -40 Z"}
 	geoSquare, _ := shapeSquare.GetGeometry()
 	if overlap := geoTriangle.HasOverlap(geoSquare); overlap != false {
 		t.Error("Expected big non-filled square not to overlap smaller triangle.")
 	}
 
-	squareFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 1 1 h 40 v 40 h -40 Z"}
+	squareFilled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 1 1 h 40 v 40 h -40 Z"}
 	geoSquareFilled, _ := squareFilled.GetGeometry()
 	if overlap := geoTriangle.HasOverlap(geoSquareFilled); overlap != true {
 		t.Error("Expected big filled square to overlap smaller triangle.")
 	}
 
 	// Test basic intersection
-	shapeTrans := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z"}
-	shapeFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z"}
-	shapeMulti := Shape{Fill: "transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z M 5 5 v -3 h 10 v -5 Z"}
+	shapeTrans := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z"}
+	shapeFilled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z"}
+	shapeMulti := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 v 3 h 10 v -5 Z M 5 5 v -3 h 10 v -5 Z"}
 	geoTrans, _ := shapeTrans.GetGeometry()
 	geoFilled, _ := shapeFilled.GetGeometry()
 	geoMulti, _ := shapeMulti.GetGeometry()
@@ -359,14 +366,14 @@ func TestOverlap(t *testing.T) {
 	}
 
 	// Test cases with shapes within weird polygons
-	longRectangle := Shape{Fill: "transparent", ShapeSvgString: "M 15 12 h 1 v 1 h -1 Z"}
-	longRectangleFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 15 12 h 1 v 1 h -1 Z"}
-	squareCenter := Shape{Fill: "transparent", ShapeSvgString: "M 18 6 h 1 v 1 h -1 Z"}
-	squareCenterFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 18 6 h 1 v 1 h -1 Z"}
-	squareLeftTooth := Shape{Fill: "transparent", ShapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
-	squareLeftToothFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
-	squareBetweenTeeth := Shape{Fill: "transparent", ShapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
-	squareBetweenTeethFilled := Shape{Fill: "non-transparent", ShapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
+	longRectangle := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 15 12 h 1 v 1 h -1 Z"}
+	longRectangleFilled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 15 12 h 1 v 1 h -1 Z"}
+	squareCenter := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 18 6 h 1 v 1 h -1 Z"}
+	squareCenterFilled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 18 6 h 1 v 1 h -1 Z"}
+	squareLeftTooth := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
+	squareLeftToothFilled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 14 12 h 1 v 1 h -1 Z"}
+	squareBetweenTeeth := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
+	squareBetweenTeethFilled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 19 19 h 1 v -1 h -1 Z"}
 	geoLongRectangle, _ := longRectangle.GetGeometry()
 	geoLongRectangleFilled, _ := longRectangleFilled.GetGeometry()
 	geoSquareCenter, _ := squareCenter.GetGeometry()

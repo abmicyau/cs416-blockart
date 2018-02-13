@@ -93,6 +93,12 @@ func (e InvalidTokenError) Error() string {
 	return fmt.Sprintf("Invalid token: ", string(e))
 }
 
+type ValidationError string
+
+func (e ValidationError) Error() string {
+	return fmt.Sprintf("Problem occured with validation on", string(e))
+}
+
 // </ERROR DEFS>
 ////////////////////////////////////////////////////////////////////////////////
 

@@ -165,6 +165,7 @@ func main() {
 	gob.Register(Block{})
 	gob.Register(Operation{})
 	gob.Register(OperationRecord{})
+	gob.Register()
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()
@@ -530,7 +531,7 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 
 // Sends block to all connected miners
 // Makes sure that enough miners are connected; if under minimum, it calls for more
-func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) {
+func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) error {
 	m.getMiners() // checks all miners, connects to more if needed
 	request := new(MinerRequest)
 	request.Payload = make([]interface{}, 2)
@@ -541,11 +542,15 @@ func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) {
 		isConnected := false
 		minerCon.Call("Miner.PingMiner", "", &isConnected)
 		if isConnected {
-			minerCon.Call("Miner.SendBlock", request, response)
+			err := minerCon.Call("Miner.SendBlock", request, response)
+			if err != nil {
+				return err
+			}
 		} else {
 			delete(m.miners, minerAddr)
 		}
 	}
+	return nil
 }
 
 // Adds a block's hash to its parent's list of child hashes.
@@ -626,9 +631,15 @@ func (m *Miner) blockSuccessfullyMined(block *Block) bool {
 		m.addBlockChild(block, blockHash)
 		logger.Println("Current BlockChainMap: ", m.blockchain)
 		m.longestChainLastBlockHash = blockHash
-		m.applyBlockInk(block)
+		err := m.disseminateToConnectedMiners(block, blockHash)
+		if err != nil {
+			// revert previous actions
+			m.longestChainLastBlockHash = m.blockchain[blockHash].PrevHash
+			delete(m.blockchain, blockHash)
+			return false
+		}
+		m.applyBlockInk(block) // should this happen here? or once validateNum comes in to effect?
 		m.moveUnminedToUnvalidated(block)
-		m.disseminateToConnectedMiners(block, blockHash)
 		return true
 	} else {
 		return false
@@ -747,15 +758,17 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	block := request.Payload[0].(Block)
 	blockHash := request.Payload[1].(string)
 
-	// TODO:
-	//		Validate Block
-	isHashValid := m.validateBlock(&block, blockHash)
-	m.moveUnminedToUnvalidated(&block) // need to remove unmined ops to stop mining mined ops
+	err := m.validateBlock(&block, blockHash)
+	if err != nil {
+		return err
+	}
+
+ 	m.moveUnminedToUnvalidated(&block)
 	//		If Valid, add to block chain
 	//		Else return invalid
 
 	// If new block, disseminate
-	if _, exists := m.blockchain[blockHash]; !exists && isHashValid {
+	if _, exists := m.blockchain[blockHash]; !exists {
 		m.blockchain[blockHash] = &block
 		m.addBlockChild(&block, blockHash)
 		// compute longest chain
@@ -1083,15 +1096,16 @@ func (m *Miner) lengthLongestChain(blockhash string) int {
 // Asserts the following about a given block and blockHash:
 // - blockhash matches POW difficulty and nonce is correct
 // - the given block points to a valid hash in the blockchain
-func (m *Miner) validateBlock(block *Block, blockHash string) bool {
+func (m *Miner) validateBlock(block *Block, blockHash string) error {
 	encodedBlock, err := json.Marshal(*block)
 	checkError(err)
 	newBlockHash := md5Hash(encodedBlock)
 	if m.hashMatchesPOWDifficulty(newBlockHash) && m.validateOpIntegrity(block) && blockHash == newBlockHash && m.blockchain[block.PrevHash] != nil  {
 		logger.Println("Received Block has been validated")
-		return true
+		return nil
 	}
-	return false
+	logger.Println("PROBLEM WITH VALIDATION")
+	return errorLib.ValidationError(blockHash)
 }
 
 // Helper function to assert that each op in a block is signed properly,

@@ -1006,6 +1006,7 @@ func (m *Miner) addRemovalRecordToUnminedOps(shapeRecord OperationRecord, valida
 	checkError(err)
 	opRecord := &OperationRecord{*op, string(encodedSig), m.pubKeyString}
 	m.unminedOps[string(encodedSig)] = opRecord
+	m.disseminateOpToConnectedMiners(opRecord)
 }
 
 // Counts the length of the block chain given a block hash

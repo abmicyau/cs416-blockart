@@ -126,7 +126,6 @@ type Block struct {
 type Operation struct {
 	Type        OpType
 	Shape       shapelib.Shape
-	ShapeHash   string
 	InkCost     uint32
 	ValidateNum uint8
 	TimeStamp   int64
@@ -136,6 +135,11 @@ type OperationRecord struct {
 	Op           Operation
 	OpSig        string
 	PubKeyString string
+}
+
+type Signature struct {
+	R *big.Int
+	S *big.Int
 }
 
 type MinerInfo struct {
@@ -661,7 +665,6 @@ func (m *Miner) validateNewShape(s shapelib.Shape) (inkCost uint32, err error) {
 			return
 		}
 	}
-
 	return
 }
 
@@ -1007,7 +1010,7 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		return
 	}
 
-	//validateNum := request.Payload[0].(uint8)
+	validateNum := request.Payload[0].(uint8)
 	shapeType := request.Payload[1].(shapelib.ShapeType)
 	shapeSvgString := request.Payload[2].(string)
 	fill := strings.Trim(request.Payload[3].(string), " ")
@@ -1021,13 +1024,90 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		Owner:          m.pubKeyString}
 
 	inkCost, err := m.validateNewShape(shape)
-	response.Error = err
-	response.Payload = make([]interface{}, 3)
-	response.Payload[0] = ""
-	response.Payload[1] = ""
-	response.Payload[2] = m.inkAccounts[m.pubKeyString] - inkCost
+	if err != nil {
+		response.Error = err
+		return
+	}
+
+	op := Operation{
+		Type:        ADD,
+		Shape:       shape,
+		InkCost:     inkCost,
+		ValidateNum: validateNum,
+		TimeStamp:   time.Now().UnixNano()}
+
+    opSig := m.addOperationRecord(&op)
+
+	response.Error = nil
+	response.Payload = make([]interface{}, 2)
+	response.Payload[0] = opSig
+	response.Payload[1] = m.inkAccounts[m.pubKeyString] - inkCost
 
 	return
+}
+
+func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (err error) {
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = errorLib.InvalidTokenError(token)
+		return nil
+	}
+
+	shapeHash := request.Payload[0].(string)
+	validateNum := request.Payload[1].(uint8)
+
+    opRecord := m.validatedOps[shapeHash]
+    if opRecord == nil || opRecord.PubKeyString != m.pubKeyString{
+        response.Error = errorLib.ShapeOwnerError(shapeHash)
+        return
+    }
+
+    op := Operation{
+        Type:        REMOVE,
+        // TODO: We need to set the fill to white here to 'erase' the shape
+        Shape:       opRecord.Op.Shape,
+        InkCost:     opRecord.Op.InkCost,
+        ValidateNum: validateNum,
+        TimeStamp:   time.Now().UnixNano()}
+
+    opSig := m.addOperationRecord(&op)
+
+	response.Error = nil
+    response.Payload = make([]interface{}, 2)
+    response.Payload[0] = opSig
+    response.Payload[1] = m.inkAccounts[m.pubKeyString] + opRecord.Op.InkCost
+
+    return
+}
+
+func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (err error) {
+    token := request.Token
+    _, validToken := m.tokens[token]
+    if !validToken {
+        response.Error = errorLib.InvalidTokenError(token)
+        return
+    }
+
+    opSig := request.Payload[0].(string)
+    op := m.validatedOps[opSig]
+
+    response.Payload = make([]interface{}, 2)
+    response.Payload[0] = false
+    response.Payload[1] = ""
+    if op == nil {
+        response.Payload[0] = false
+    } else {
+        blockHash, err := m.getOpBlockHash(opSig)
+        if err != nil {
+            response.Error = err
+        } else {
+            response.Payload[0] = true
+            response.Payload[1] = blockHash
+        }
+    }
+
+    return
 }
 
 // </RPC METHODS>
@@ -1037,6 +1117,27 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <HELPER METHODS>
+
+func (m *Miner) addOperationRecord(op *Operation) (opSig string) {
+    encodedOp, err := json.Marshal(*op)
+    checkError(err)
+    r, s, err := ecdsa.Sign(rand.Reader, &m.privKey, encodedOp)
+    checkError(err)
+    sig := Signature{r, s}
+    encodedSig, err := json.Marshal(sig)
+    checkError(err)
+    opSig = string(encodedSig)
+
+    opRecord := OperationRecord{
+        Op:           *op,
+        OpSig:        opSig,
+        PubKeyString: m.pubKeyString}
+
+    m.unminedOps[opSig] = &opRecord
+    m.disseminateOpToConnectedMiners(&opRecord)
+
+    return
+}
 
 // Counts the length of the block chain given a block hash
 func (m *Miner) lengthLongestChain(blockhash string) int {
@@ -1082,7 +1183,27 @@ func (m *Miner) validateOp(opRec OperationRecord) bool {
 	return true
 }
 
-// </RPC METHODS>
+func (m *Miner) getOpBlockHash(opSig string) (string, error) {
+	hash := m.longestChainLastBlockHash
+	block := m.blockchain[hash]
+	blockNo := block.BlockNo
+	for blockNo > 1 {
+		ops := block.Records
+		for _, op := range ops {
+			if op.OpSig == opSig {
+				return hash, nil
+			}
+		}
+
+		hash = block.PrevHash
+		block = m.blockchain[hash]
+		blockNo = block.BlockNo
+	}
+
+	return "", errorLib.InvalidShapeHashError(opSig)
+}
+
+// </HELPER METHODS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////////////////

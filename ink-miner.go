@@ -779,9 +779,11 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 			} else {
 				m.changeBlockchainHead(m.longestChainLastBlockHash, blockHash)
 			}
+		} else if newChainLength == oldChainLength {
+			if blockHash > m.longestChainLastBlockHash {
+				m.changeBlockchainHead(m.longestChainLastBlockHash, blockHash)
+			}
 		}
-		// TODO: else, if equal, pick the largest hash = random
-		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners
 		m.disseminateToConnectedMiners(&block, blockHash)

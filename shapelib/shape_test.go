@@ -319,6 +319,8 @@ func TestInkRequired(t *testing.T) {
 	shape5 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}     // Dracula teeth
 	shape6 := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"} // Dracula teeth
 	shape7 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 10 l 5 5 M 20 20 l 5 5"}                  // Muliple moveto
+	shape8 := Shape{ShapeType: CIRCLE, Fill: "transparent", ShapeSvgString: "X 10 Y 10 R 5"}                              // Trans circle
+	shape9 := Shape{ShapeType: CIRCLE, Fill: "non-transparent", ShapeSvgString: "X 10 Y 10 R 10"}                         // Filled circle
 	geo1, _ := shape1.GetGeometry()
 	geo2, _ := shape2.GetGeometry()
 	geo3, _ := shape3.GetGeometry()
@@ -326,6 +328,8 @@ func TestInkRequired(t *testing.T) {
 	geo5, _ := shape5.GetGeometry()
 	geo6, _ := shape6.GetGeometry()
 	geo7, _ := shape7.GetGeometry()
+	geo8, _ := shape8.GetGeometry()
+	geo9, _ := shape9.GetGeometry()
 
 	if ink := geo1.GetInkCost(); ink != 8 {
 		t.Error("Expected 8 ink units, got", strconv.FormatUint(ink, 10))
@@ -354,6 +358,14 @@ func TestInkRequired(t *testing.T) {
 
 	if ink := geo7.GetInkCost(); ink != 16 {
 		t.Error("Expected 8 ink units, got", strconv.FormatUint(ink, 10))
+	}
+
+	if ink := geo8.GetInkCost(); ink != 32 {
+		t.Error("Expected 32 ink units, got", strconv.FormatUint(ink, 10))
+	}
+
+	if ink := geo9.GetInkCost(); ink != 376 {
+		t.Error("Expected 376 ink units, got", strconv.FormatUint(ink, 10))
 	}
 }
 

@@ -165,6 +165,7 @@ func main() {
 	gob.Register(Block{})
 	gob.Register(Operation{})
 	gob.Register(OperationRecord{})
+	gob.Register(errorLib.InvalidBlockHashError(""))
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()
@@ -235,7 +236,17 @@ func (m *Miner) init() {
 }
 
 func (m *Miner) listenRPC() {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
+	addrs, _ := net.InterfaceAddrs()
+	var externalIP string
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				externalIP = ipnet.IP.String()
+			}
+		}
+	}
+	externalIP = externalIP + ":0"
+	tcpAddr, err := net.ResolveTCPAddr("tcp", externalIP)
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
@@ -302,6 +313,7 @@ func (m *Miner) connectToMiners(addrs []net.Addr) {
 		if m.miners[minerAddr.String()] == nil {
 			minerConn, err := rpc.Dial("tcp", minerAddr.String())
 			if err != nil {
+				log.Println(err)
 				delete(m.miners, minerAddr.String())
 			} else {
 				m.miners[minerAddr.String()] = minerConn
@@ -689,12 +701,13 @@ func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) (err 
 	if validNonce && validSignature {
 		delete(m.nonces, nonce)
 		response.Error = nil
-		response.Payload = make([]interface{}, 2)
+		response.Payload = make([]interface{}, 3)
 		token := getRand256()
 		m.tokens[token] = true
 
 		response.Payload[0] = token
-		response.Payload[1] = m.settings.CanvasSettings
+		response.Payload[1] = m.settings.CanvasSettings.CanvasXMax
+		response.Payload[2] = m.settings.CanvasSettings.CanvasYMax
 	} else {
 		response.Error = new(errorLib.InvalidSignatureError)
 	}
@@ -757,9 +770,11 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 			} else {
 				m.changeBlockchainHead(m.longestChainLastBlockHash, blockHash)
 			}
+		} else if newChainLength == oldChainLength {
+			if blockHash > m.longestChainLastBlockHash {
+				m.changeBlockchainHead(m.longestChainLastBlockHash, blockHash)
+			}
 		}
-		// TODO: else, if equal, pick the largest hash = random
-		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners
 		m.disseminateToConnectedMiners(&block, blockHash)
@@ -901,7 +916,6 @@ func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) er
 		response.Error = errorLib.InvalidBlockHashError(hash)
 		return nil
 	}
-
 	response.Error = nil
 	response.Payload = make([]interface{}, 1)
 	response.Payload[0] = children

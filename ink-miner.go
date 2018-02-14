@@ -379,7 +379,10 @@ func (m *Miner) getLongestChain() {
 				}
 				// If an operation of a block was invalid or the blockHash is invalid, the block is invalid.
 				// Set flag, keep track of how long the chain was before invalid, and break.
-				if !isOpValid && !m.validateBlock(&block, myHash) {
+				//
+				// TODO: There seems to be some repeated/redundant work here that we should
+				// figure out if we get the chance.
+				if !isOpValid || m.validateBlock(&block, myHash) != nil {
 					isBlockValid = false
 					chainlength = i
 					break

@@ -165,7 +165,6 @@ func main() {
 	gob.Register(Block{})
 	gob.Register(Operation{})
 	gob.Register(OperationRecord{})
-	gob.Register()
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()
@@ -543,7 +542,7 @@ func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) err
 		minerCon.Call("Miner.PingMiner", "", &isConnected)
 		if isConnected {
 			err := minerCon.Call("Miner.SendBlock", request, response)
-			if err != nil {
+			if err == errorLib.ValidationError(blockHash) {
 				return err
 			}
 		} else {

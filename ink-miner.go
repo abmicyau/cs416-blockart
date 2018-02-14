@@ -578,7 +578,7 @@ func (m *Miner) validateNewShape(s shapelib.Shape) (inkCost uint32, err error) {
 	} else if s.Fill == "" {
 		err = errorLib.InvalidShapeFillStrokeError("Shape fill must be specified")
 		return
-	} else if s.Stroke == "transparent" || s.Fill == "transparent" {
+	} else if s.Stroke == "transparent" && s.Fill == "transparent" {
 		err = errorLib.InvalidShapeFillStrokeError("Both fill and stroke cannot be transparent")
 		return
 	}
@@ -943,7 +943,7 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 	}
 
 	validateNum := request.Payload[0].(uint8)
-	shapeType := request.Payload[1].(shapelib.ShapeType)
+	shapeType := shapelib.ShapeType(request.Payload[1].(int))
 	shapeSvgString := request.Payload[2].(string)
 	fill := strings.Trim(request.Payload[3].(string), " ")
 	stroke := strings.Trim(request.Payload[4].(string), " ")

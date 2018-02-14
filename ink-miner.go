@@ -113,6 +113,7 @@ type Miner struct {
 	unminedOps                map[string]*OperationRecord
 	unvalidatedOps            map[string]*OperationRecord
 	validatedOps              map[string]*OperationRecord
+	tempOps                   map[string]*OperationRecord
 }
 
 type Block struct {
@@ -195,6 +196,7 @@ func (m *Miner) init() {
 	m.unminedOps = make(map[string]*OperationRecord)
 	m.unvalidatedOps = make(map[string]*OperationRecord)
 	m.validatedOps = make(map[string]*OperationRecord)
+	m.tempOps = make(map[string]*OperationRecord)
 	m.inkAccounts[m.pubKeyString] = 0
 	if len(args) <= 1 {
 		logger.Fatalln("Missing keys, please generate with: go run generateKeys.go")
@@ -610,6 +612,14 @@ func (m *Miner) hasOverlappingShape(s shapelib.Shape, geo shapelib.ShapeGeometry
 		}
 	}
 	for hash, opRecord := range m.validatedOps {
+		_s := opRecord.Op.Shape
+		if _s.Owner == s.Owner {
+			continue
+		} else if _geo, _ := _s.GetGeometry(); _geo.HasOverlap(geo) {
+			return true, hash
+		}
+	}
+	for hash, opRecord := range m.tempOps {
 		_s := opRecord.Op.Shape
 		if _s.Owner == s.Owner {
 			continue
@@ -1099,7 +1109,7 @@ func (m *Miner) validateBlock(block *Block, blockHash string) error {
 	encodedBlock, err := json.Marshal(*block)
 	checkError(err)
 	newBlockHash := md5Hash(encodedBlock)
-	if m.hashMatchesPOWDifficulty(newBlockHash) && m.validateOpIntegrity(block) && blockHash == newBlockHash && m.blockchain[block.PrevHash] != nil  {
+	if m.hashMatchesPOWDifficulty(newBlockHash) && m.validateOpIntegrity(block) && blockHash == newBlockHash && m.blockchain[block.PrevHash] != nil {
 		logger.Println("Received Block has been validated")
 		return nil
 	}
@@ -1112,13 +1122,19 @@ func (m *Miner) validateBlock(block *Block, blockHash string) error {
 func (m *Miner) validateOpIntegrity(block *Block) bool {
 	for _, opRecord := range block.Records {
 		if m.validateSignature(opRecord) {
+			// add op to tempOps to check for shape harmony (yes, harmony :))
+			m.tempOps[opRecord.OpSig] = &opRecord
 			_, err := m.validateNewShape(opRecord.Op.Shape)
 			if err != nil {
 				return false
 			}
 		} else {
-			return false;
+			return false
 		}
+	}
+	// cleanup all tempOps
+	for k := range m.tempOps {
+		delete(m.tempOps, k)
 	}
 	return true
 }

@@ -3,6 +3,7 @@ package shapelib
 import (
 	"errors"
 	"math"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -576,9 +577,11 @@ func (s PathGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) 
 
 // Determines if a proposed shape overlape this shape.
 func (g PathGeometry) HasOverlap(_g ShapeGeometry) bool {
-	if _gP, ok := _g.(PathGeometry); ok {
+	if strings.HasSuffix(reflect.TypeOf(_g).String(), "PathGeometry") {
+		_gP, _ := _g.(PathGeometry)
 		return g.hasPathOverlap(_gP)
-	} else if _gC, ok := _g.(CircleGeometry); ok {
+	} else {
+		_gC, _ := _g.(CircleGeometry)
 		return g.hasCircleOverlap(_gC)
 	}
 
@@ -598,8 +601,7 @@ func (g PathGeometry) hasPathOverlap(_g PathGeometry) (overlap bool) {
 }
 
 func (g PathGeometry) hasCircleOverlap(_g CircleGeometry) bool {
-	//TODO
-	return true
+	return _g.HasOverlap(g)
 }
 
 // Determines if any of the vertices are contained with a polygon, using a scanline.
@@ -658,23 +660,23 @@ type CircleGeometry struct {
 	Max    Point
 }
 
-func (g CircleGeometry) getIntersectsWithLine(l LineSegment) (intersects []Point) {
+func (g CircleGeometry) getLineIntersects(l LineSegment) (intersects []Point) {
 	xC, yC, r := float64(g.Center.X), float64(g.Center.Y), float64(g.Radius)
 	if l.A == 0 { // y is constant
 		var y float64 = float64(l.C / l.B)
 
-		intersects = solveCircleForX(y, xC, yC, r)
+		intersects = solveCircleForX(y, xC, yC, r, l)
 	} else if l.B == 0 { // x is constant
 		var x float64 = float64(l.C / l.A)
 
-		intersects = solveCircleForY(x, xC, yC, r)
+		intersects = solveCircleForY(x, xC, yC, r, l)
 	} else {
 		lA_lB := float64(l.A / l.B)
 		lC_lB := float64(l.C / l.B)
 
 		var a float64 = float64(lA_lB*lA_lB) + 1.0
-		var b float64 = (2*(xC-yC) + lC_lB) * lA_lB
-		var c float64 = math.Pow(lC_lB+yC, 2)
+		var b float64 = (-2.0 * (xC)) - (2.0 * (lA_lB * (lC_lB * yC)))
+		var c float64 = (xC * xC) + math.Pow(lC_lB-yC, 2) - (r * r)
 
 		var d float64 = (b * b) - (4.0 * a * c)
 		if d < 0 {
@@ -682,15 +684,15 @@ func (g CircleGeometry) getIntersectsWithLine(l LineSegment) (intersects []Point
 		} else if d == 0 {
 			var x float64 = (-1 * b) / (2 * a)
 
-			intersects = solveCircleForY(x, xC, yC, r)
+			intersects = solveCircleForY(x, xC, yC, r, l)
 		} else {
 			_d := math.Sqrt(float64(d))
 
 			var x1 float64 = (float64(-1*b) + _d) / float64(2*a)
 			var x2 float64 = (float64(-1*b) - _d) / float64(2*a)
 
-			p1 := solveCircleForY(x1, xC, yC, r)
-			p2 := solveCircleForY(x2, xC, yC, r)
+			p1 := solveCircleForY(x1, xC, yC, r, l)
+			p2 := solveCircleForY(x2, xC, yC, r, l)
 
 			if len(p1) > 0 {
 				intersects = append(intersects, p1[0])
@@ -712,7 +714,7 @@ func (g CircleGeometry) computePerimeter() (perimeter uint64) {
 func (g CircleGeometry) computeArea() (area uint64) {
 	for y := g.Min.Y; y <= g.Max.Y; y++ {
 		scanLine := getLineSegment(Point{g.Min.X, y}, Point{g.Max.X, y})
-		intersects := g.getIntersectsWithLine(scanLine)
+		intersects := g.getLineIntersects(scanLine)
 		if len(intersects) > 1 {
 			lineSegment := getLineSegment(intersects[0], intersects[1])
 
@@ -741,12 +743,80 @@ func (g CircleGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error
 		return false, new(OutOfBoundsError)
 	}
 }
-func (g CircleGeometry) HasOverlap(_s ShapeGeometry) bool {
-	//TODO
+
+func (g CircleGeometry) HasOverlap(_g ShapeGeometry) bool {
+	if strings.HasSuffix(reflect.TypeOf(_g).String(), "PathGeometry") {
+		_gP, _ := _g.(PathGeometry)
+		return g.hasPathOverlap(_gP)
+	} else {
+		_gC, _ := _g.(CircleGeometry)
+		return g.hasCircleOverlap(_gC)
+	}
+
 	return false
 }
+
+func (g CircleGeometry) hasPathOverlap(_g PathGeometry) bool {
+	vertices := _g.getAllVertices()
+	lineSegments := _g.getAllLineSegments()
+
+	// Does the circle contain any of the polygons vertices?
+	if g.Fill != "transparent" && g.containsVertex(vertices) {
+		return true
+	}
+
+	// Does the circle intersect any of the polygons line segments?
+	for _, l := range lineSegments {
+		if len(g.getLineIntersects(l)) > 0 {
+			return true
+		}
+	}
+
+	// Does the polygon contain the circle?
+	if _g.Fill != "transparent" && _g.containsVertex([]Point{g.Center}) {
+		return true
+	}
+
+	return false
+}
+
+func (g CircleGeometry) hasCircleOverlap(_g CircleGeometry) bool {
+	// If they are same size, check distance between centers against radii.
+	if g.Radius == _g.Radius {
+		if dist := g.Center.getDist(_g.Center); dist <= float64(g.Radius+_g.Radius) {
+			return true
+		}
+	} else {
+		var smaller, bigger CircleGeometry
+		if _g.Radius < g.Radius {
+			smaller, bigger = _g, g
+		} else {
+			smaller, bigger = g, _g
+		}
+
+		dist := smaller.Center.getDist(bigger.Center)
+		if dist > float64(smaller.Radius+bigger.Radius) {
+			return false
+		} else if bigger.Fill != "transparent" {
+			return true
+		}
+
+		_dist := dist - float64(bigger.Radius)
+		if _dist > 0 && _dist <= float64(smaller.Radius) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (g CircleGeometry) containsVertex(vertices []Point) bool {
-	//TODO
+	for _, v := range vertices {
+		if g.Center.getDist(v) <= float64(g.Radius) {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -767,6 +837,11 @@ type Point struct {
 
 func (p Point) inBound(xMax uint32, yMax uint32) bool {
 	return p.X > 0 && p.Y > 0 && p.X < int64(xMax) && p.Y < int64(yMax)
+}
+
+func (p Point) getDist(_p Point) float64 {
+	x1, x2, y1, y2 := p.X, _p.X, p.Y, _p.Y
+	return math.Sqrt(math.Pow(float64(x2-x1), 2) + math.Pow(float64(y2-y1), 2))
 }
 
 // </POINT>
@@ -799,12 +874,20 @@ func (l LineSegment) Length() uint64 {
 	}
 }
 
-// Determines if a point lies on a line segment
+// Determines if a point lies on a line segment -- Assumes point found by intersection
 func (l LineSegment) HasPoint(p Point) bool {
 	x1, y1, x2, y2 := l.Start.X, l.Start.Y, l.End.X, l.End.Y
 
 	return ((y1 <= p.Y && p.Y <= y2) || (y1 >= p.Y && p.Y >= y2)) &&
 		((x1 <= p.X && p.X <= x2) || (x1 >= p.X && p.X >= x2))
+}
+
+// Determines if a point lies on a line segment -- Assumes point found by intersection
+func (l LineSegment) hasFloatPoint(x float64, y float64) bool {
+	x1, y1, x2, y2 := float64(l.Start.X), float64(l.Start.Y), float64(l.End.X), float64(l.End.Y)
+
+	return ((y1 <= y && y <= y2) || (y1 >= y && y >= y2)) &&
+		((x1 <= x && x <= x2) || (x1 >= x && x >= x2))
 }
 
 // Determines if two line segments are parallel
@@ -1030,53 +1113,71 @@ func computeGeoArea(vertices []Point) uint64 {
 	return uint64(area / 2)
 }
 
-func solveCircleForY(x float64, xC float64, yC float64, r float64) (points []Point) {
+func solveCircleForY(x float64, xC float64, yC float64, r float64, onLineSegment LineSegment) (points []Point) {
+	var _points [][]float64
+
 	var a float64 = 1.0
-	var b float64 = 2.0 * yC
-	var c float64 = (yC * yC) + (x + xC) - (r * r)
+	var b float64 = -2.0 * yC
+	var c float64 = (yC * yC) + math.Pow(x-xC, 2) - (r * r)
 
 	d := float64((b * b) - (4.0 * a * c))
 	if d < 0 {
 		return
 	} else if d == 0 {
-		var _y float64 = (-1 * b) / (2 * a)
+		var y float64 = (-1 * b) / (2 * a)
 
-		x, y := int64(math.Ceil(x)), int64(math.Ceil(_y))
-		points = append(points, Point{x, y})
+		_points = append(_points, []float64{x, y})
 	} else {
 		_d := math.Sqrt(float64(d))
 
-		var _y1 float64 = ((-1 * b) + _d) / (2 * a)
-		var _y2 float64 = ((-1 * b) - _d) / (2 * a)
+		var y1 float64 = ((-1 * b) + _d) / (2 * a)
+		var y2 float64 = ((-1 * b) - _d) / (2 * a)
 
-		x, y1, y2 := int64(math.Ceil(x)), int64(math.Ceil(_y1)), int64(math.Ceil(_y2))
-		points = append(points, Point{x, y1}, Point{x, y2})
+		_points = append(_points, []float64{x, y1}, []float64{x, y2})
+	}
+
+	for _, p := range _points {
+		if onLineSegment.hasFloatPoint(p[0], p[1]) {
+			x := int64(math.Ceil(p[0]))
+			y := int64(math.Ceil(p[1]))
+
+			points = append(points, Point{x, y})
+		}
 	}
 
 	return
 }
 
-func solveCircleForX(y float64, xC float64, yC float64, r float64) (points []Point) {
+func solveCircleForX(y float64, xC float64, yC float64, r float64, onLineSegment LineSegment) (points []Point) {
+	var _points [][]float64
+
 	var a float64 = 1.0
-	var b float64 = 2.0 * xC
-	var c float64 = (xC * xC) + (y + yC) - (r * r)
+	var b float64 = -2.0 * xC
+	var c float64 = (xC * xC) + math.Pow(y-yC, 2) - (r * r)
 
 	d := float64((b * b) - (4.0 * a * c))
 	if d < 0 {
 		return
 	} else if d == 0 {
-		var _x float64 = (-1 * b) / (2 * a)
+		var x float64 = (-1 * b) / (2 * a)
 
-		x, y := int64(math.Ceil(_x)), int64(math.Ceil(y))
-		points = append(points, Point{x, y})
+		_points = append(_points, []float64{x, y})
 	} else {
 		_d := math.Sqrt(float64(d))
 
-		var _x1 float64 = ((-1 * b) + _d) / (2 * a)
-		var _x2 float64 = ((-1 * b) - _d) / (2 * a)
+		var x1 float64 = ((-1 * b) + _d) / (2 * a)
+		var x2 float64 = ((-1 * b) - _d) / (2 * a)
 
-		x1, x2, y := int64(math.Ceil(_x1)), int64(math.Ceil(_x2)), int64(math.Ceil(y))
-		points = append(points, Point{x1, y}, Point{x2, y})
+		_points = append(_points, []float64{x1, y}, []float64{x2, y})
+	}
+
+	for _, p := range _points {
+		if onLineSegment.hasFloatPoint(p[0], p[1]) {
+			x := int64(math.Ceil(p[0]))
+			y := int64(math.Ceil(p[1]))
+
+			points = append(points, Point{x, y})
+		}
 	}
 
 	return

@@ -364,13 +364,137 @@ func TestInkRequired(t *testing.T) {
 		t.Error("Expected 32 ink units, got", strconv.FormatUint(ink, 10))
 	}
 
-	if ink := geo9.GetInkCost(); ink != 376 {
-		t.Error("Expected 376 ink units, got", strconv.FormatUint(ink, 10))
+	if ink := geo9.GetInkCost(); ink != 312 {
+		t.Error("Expected 312 ink units, got", strconv.FormatUint(ink, 10))
 	}
 }
 
 // Test overlap
 func TestOverlap(t *testing.T) {
+	shapeCircle1 := Shape{ShapeType: CIRCLE, Fill: "transparent", ShapeSvgString: "X 50 Y 50 R 5"}
+	shapeCircle1Filled := Shape{ShapeType: CIRCLE, Fill: "non-transparent", ShapeSvgString: "X 50 Y 50 R 5"}
+	shapeCircle2 := Shape{ShapeType: CIRCLE, Fill: "transparent", ShapeSvgString: "X 40 Y 40 R 5"}
+	shapeCircle2Filled := Shape{ShapeType: CIRCLE, Fill: "non-transparent", ShapeSvgString: "X 40 Y 40 R 5"}
+	shapeCircle3 := Shape{ShapeType: CIRCLE, Fill: "transparent", ShapeSvgString: "X 50 Y 50 R 10"}
+	shapeCircle3Filled := Shape{ShapeType: CIRCLE, Fill: "non-transparent", ShapeSvgString: "X 50 Y 50 R 10"}
+	shapeSquare1 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 48 48 h 4 v 4 h -4 z"}
+	shapeSquare2 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 55 55 h 10 v -10 h -10 z"}
+	shapeSquare2Filled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 55 55 h 10 v -10 h -10 z"}
+	shapeSquare3 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 20 80 h 60 v -60 h -60 z"}
+	shapeSquare3Filled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 20 80 h 60 v -60 h -60 z"}
+	geoCircle1, _ := shapeCircle1.GetGeometry()
+	geoCircle1Filled, _ := shapeCircle1Filled.GetGeometry()
+	geoCircle2, _ := shapeCircle2.GetGeometry()
+	geoCircle2Filled, _ := shapeCircle2Filled.GetGeometry()
+	geoCircle3, _ := shapeCircle3.GetGeometry()
+	geoCircle3Filled, _ := shapeCircle3Filled.GetGeometry()
+	geoSquare1, _ := shapeSquare1.GetGeometry()
+	geoSquare2, _ := shapeSquare2.GetGeometry()
+	geoSquare2Filled, _ := shapeSquare2Filled.GetGeometry()
+	geoSquare3, _ := shapeSquare3.GetGeometry()
+	geoSquare3Filled, _ := shapeSquare3Filled.GetGeometry()
+
+	// Test path surrounding circle
+	if overlap := geoSquare3.HasOverlap(geoCircle1); overlap != false {
+		t.Error("Expected transparent polygon surrounding circle to not overlap.")
+	}
+
+	if overlap := geoCircle1.HasOverlap(geoSquare3); overlap != false {
+		t.Error("Expected transparent polygon surrounding circle to not overlap.")
+	}
+
+	if overlap := geoSquare3Filled.HasOverlap(geoCircle1); overlap != true {
+		t.Error("Expected filled polygon surrounding circle to overlap.")
+	}
+
+	if overlap := geoCircle1.HasOverlap(geoSquare3Filled); overlap != true {
+		t.Error("Expected filled polygon surrounding circle to overlap.")
+	}
+
+	// Test circle surrounding polygon
+	if overlap := geoCircle1.HasOverlap(geoSquare1); overlap != false {
+		t.Error("Expected transparent circle surrounding polygon to not overlap.")
+	}
+
+	if overlap := geoSquare1.HasOverlap(geoCircle1); overlap != false {
+		t.Error("Expected transparent circle surrounding polygon to not overlap.")
+	}
+
+	if overlap := geoCircle1Filled.HasOverlap(geoSquare1); overlap != true {
+		t.Error("Expected filled circle surrounding polygon to overlap.")
+	}
+
+	if overlap := geoSquare1.HasOverlap(geoCircle1Filled); overlap != true {
+		t.Error("Expected filled circle surrounding polygon to overlap.")
+	}
+
+	// Test circle surrounding circle
+	if overlap := geoCircle1.HasOverlap(geoCircle3); overlap != false {
+		t.Error("Expected transparent circle surrounding circle to not overlap.")
+	}
+
+	if overlap := geoCircle3.HasOverlap(geoCircle1); overlap != false {
+		t.Error("Expected transparent circle surrounding circle to not overlap.")
+	}
+
+	if overlap := geoCircle3Filled.HasOverlap(geoCircle1); overlap != true {
+		t.Error("Expected filled circle surrounding circle to overlap.")
+	}
+
+	if overlap := geoCircle1.HasOverlap(geoCircle3Filled); overlap != true {
+		t.Error("Expected filled circle surrounding circle to overlap.")
+	}
+
+	// Test circle intersecting polygon
+	if overlap := geoCircle3.HasOverlap(geoSquare2); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoSquare2.HasOverlap(geoCircle3); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoCircle3Filled.HasOverlap(geoSquare2); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoSquare2.HasOverlap(geoCircle3Filled); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoCircle3Filled.HasOverlap(geoSquare2Filled); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoSquare2Filled.HasOverlap(geoCircle3Filled); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	// Test circle intersecting circle
+	if overlap := geoCircle2.HasOverlap(geoCircle3); overlap != true {
+		t.Error("Expected circle intersecting circle to overlap.")
+	}
+
+	if overlap := geoCircle3.HasOverlap(geoCircle2); overlap != true {
+		t.Error("Expected circle intersecting circle to overlap.")
+	}
+
+	if overlap := geoCircle2Filled.HasOverlap(geoCircle3); overlap != true {
+		t.Error("Expected circle intersecting circle to overlap.")
+	}
+
+	if overlap := geoCircle3.HasOverlap(geoCircle2Filled); overlap != true {
+		t.Error("Expected circle intersecting circle to overlap.")
+	}
+
+	if overlap := geoCircle2Filled.HasOverlap(geoCircle3Filled); overlap != true {
+		t.Error("Expected circle intersecting circle to overlap.")
+	}
+
+	if overlap := geoCircle3Filled.HasOverlap(geoCircle2Filled); overlap != true {
+		t.Error("Expected circle intersecting circle to overlap.")
+	}
+
 	shapeTriangle := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                                // Triangle -- Transparent
 	shapeTriangleFilled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 5 5 h 4 l -2 5 z"}                      // Triangle -- Filled
 	shapeDracula := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 10 5 L 26 5 l -4 15 l -4 -10 l -4 10 Z"}           // Dracula teeth -- Transparent

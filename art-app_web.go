@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 
@@ -41,8 +42,17 @@ var canvasSets CanvasSets
 var canvasGlobal blockartlib.Canvas
 
 func main() {
-	// TO USE ME
-	webserverAddr := "127.0.0.1:8080"
+	addrs, _ := net.InterfaceAddrs()
+	var externalIP string
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				externalIP = ipnet.IP.String()
+			}
+		}
+	}
+
+	webserverAddr := externalIP + ":8080"
 	args := os.Args[1:]
 
 	if len(args) != 2 {

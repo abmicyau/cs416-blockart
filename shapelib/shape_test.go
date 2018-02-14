@@ -1,5 +1,12 @@
 package shapelib
 
+/*
+Usage:
+cd [shapelib]; go test
+
+IMPORTANT: import '. ../errorlib' in shape.go must be set to path relative to your GOROOT  first.
+*/
+
 import (
 	"strconv"
 	"testing"

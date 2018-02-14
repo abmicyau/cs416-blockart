@@ -932,7 +932,7 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 	}
 
 	validateNum := request.Payload[0].(uint8)
-	shapeType := request.Payload[1].(shapelib.ShapeType)
+	shapeType := shapelib.ShapeType(request.Payload[1].(int))
 	shapeSvgString := request.Payload[2].(string)
 	fill := strings.Trim(request.Payload[3].(string), " ")
 	stroke := strings.Trim(request.Payload[4].(string), " ")

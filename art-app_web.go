@@ -136,7 +136,12 @@ func BlocksHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		// Testing path
-		//LongestChainJson.Blocks[iBlock].Shapes = append(LongestChainJson.Blocks[iBlock].Shapes, `<path stroke="#f00" stroke-width="3" d=" M 50,50 L 100 100"/>`)
+		// if iBlock == 3 {
+		// LongestChainJson.Blocks[iBlock].Shapes = append(LongestChainJson.Blocks[iBlock].Shapes, `<path stroke="#f00" stroke-width="3" d=" M 50,50 L 100 100"/>`)
+		// } else if iBlock == 5 {
+		// 	LongestChainJson.Blocks[iBlock].Shapes = append(LongestChainJson.Blocks[iBlock].Shapes, `<path d="M10 80 C 40 10, 65 10, 95 80 S 150 150, 180 80" stroke="black" fill="transparent"/>`)
+
+		// }
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")

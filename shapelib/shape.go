@@ -837,7 +837,7 @@ type Point struct {
 }
 
 func (p Point) inBound(xMax uint32, yMax uint32) bool {
-	return p.X > 0 && p.Y > 0 && p.X < int64(xMax) && p.Y < int64(yMax)
+	return p.X >= 0 && p.Y >= 0 && p.X < int64(xMax) && p.Y < int64(yMax)
 }
 
 func (p Point) getDist(_p Point) float64 {

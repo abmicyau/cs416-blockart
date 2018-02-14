@@ -652,13 +652,7 @@ func (m *Miner) blockSuccessfullyMined(block *Block) bool {
 		m.addBlockChild(block, blockHash)
 		logger.Println("Current BlockChainMap: ", m.blockchain)
 		m.longestChainLastBlockHash = blockHash
-		err := m.disseminateToConnectedMiners(block, blockHash)
-		if err != nil {
-			// revert previous actions
-			m.longestChainLastBlockHash = m.blockchain[blockHash].PrevHash
-			delete(m.blockchain, blockHash)
-			return false
-		}
+		m.disseminateToConnectedMiners(block, blockHash)
 		m.applyBlockInk(block) // should this happen here? or once validateNum comes in to effect?
 		m.moveUnminedToUnvalidated(block)
 		return true

@@ -405,13 +405,16 @@ func (m *Miner) getLongestChain() {
 			// Should be from Latest block to Earliest/Genesis
 			// Assumptions:
 			//	-is that the chain was validated earlier ^, just need to apply the blocks and ops now
-			//  -don't need to worry about valid and unvalid ops, new miner
 			block := &longestBlockChain[i]
 			m.applyBlockInk(block)
 			m.blockchain[currHash] = block
 			m.addBlockChild(block, currHash)
 			for _, opRec := range block.Records {
-				m.validatedOps[opRec.OpSig] = &opRec
+				if m.isOpValidateNumFulfilled(longestBlockHash, &opRec, block) {
+					m.validatedOps[opRec.OpSig] = &opRec
+				} else {
+					m.unvalidatedOps[opRec.OpSig] = &opRec
+				}
 			}
 			currHash = longestBlockChain[i].PrevHash
 		}

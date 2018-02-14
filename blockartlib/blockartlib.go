@@ -242,6 +242,7 @@ func (e InvalidBlockHashError) Error() string {
 func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, setting CanvasSettings, err error) {
 	// Greet the miner and retrieve a nonce
 	gob.Register(errorLib.InvalidBlockHashError(""))
+
 	miner, err := rpc.Dial("tcp", minerAddr)
 	if checkError(err) != nil {
 		return CanvasInstance{}, CanvasSettings{}, DisconnectedError(minerAddr)
@@ -294,7 +295,7 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 	request.Token = c.Token
 	request.Payload = make([]interface{}, 5)
 	request.Payload[0] = validateNum
-	request.Payload[1] = shapeType
+	request.Payload[1] = int(shapeType)
 	request.Payload[2] = shapeSvgString
 	request.Payload[3] = fill
 	request.Payload[4] = stroke

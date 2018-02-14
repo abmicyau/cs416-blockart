@@ -984,11 +984,13 @@ func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (e
 		return
 	}
 
+	delShape := opRecord.Op.Shape
+	delShape.Fill, delShape.Stroke = "white", "white"
+
 	op := Operation{
-		Type: REMOVE,
-		// TODO: We need to set the fill to white here to 'erase' the shape
-		Shape:       opRecord.Op.Shape,
-		InkCost:     opRecord.Op.InkCost,
+		Type:        REMOVE,
+		Shape:       delShape,
+		InkCost:     0, // Set to 0, to further identify delete
 		ValidateNum: validateNum,
 		TimeStamp:   time.Now().UnixNano()}
 

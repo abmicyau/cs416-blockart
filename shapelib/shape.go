@@ -3,6 +3,7 @@ package shapelib
 import (
 	"errors"
 	"math"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,34 +12,37 @@ import (
 )
 
 ////////////////////////////////////////////////////////////////////////////////////////////
-// <OBJECT DEFINTIONS>
+// <COMMAND>
 
-// Represents a type of shape in the BlockArt system.
-type ShapeType int
-
-const (
-	// Path shape.
-	PATH ShapeType = iota
-)
-
-// Represents a command with type(M, H, L, m, h, l, etc.)
+// Represents a path command with type(M, H, L, m, h, l, etc.)
 // and specified (x, y) coordinate
-type Command struct {
+type PathCommand struct {
 	CmdType string
 
 	X int64
 	Y int64
 }
 
-// Represents a point with (x, y) coordinate
-type Point struct {
-	X int64
-	Y int64
+// Represents a circle command with type(X, Y, R, x, y, r) and value
+type CircleCommand struct {
+	CmdType string
+
+	Val int64
 }
 
-func (p Point) inBound(xMax uint32, yMax uint32) bool {
-	return p.X > 0 && p.Y > 0 && p.X < int64(xMax) && p.Y < int64(yMax)
-}
+// </COMMAND>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <SHAPE>
+
+// Represents a type of shape in the BlockArt system.
+type ShapeType int
+
+const (
+	PATH ShapeType = iota
+	CIRCLE
+)
 
 type Shape struct {
 	Owner string
@@ -49,22 +53,83 @@ type Shape struct {
 	Stroke         string
 }
 
+func (s Shape) isPath() bool {
+	return s.ShapeType == PATH
+}
+
+func (s Shape) isCircle() bool {
+	return s.ShapeType == CIRCLE
+}
+
 // Determines whether the shape is valid
-func (s *Shape) IsValid(xMax uint32, yMax uint32) (valid bool, geometry ShapeGeometry, err error) {
-	if geometry, err = s.GetGeometry(); err == nil {
+func (s Shape) IsValid(xMax uint32, yMax uint32) (valid bool, geometry ShapeGeometry, err error) {
+	if s.Stroke == "" {
+		err = InvalidShapeFillStrokeError("Shape stroke must be specified")
+		return
+	} else if s.Fill == "" {
+		err = InvalidShapeFillStrokeError("Shape fill must be specified")
+		return
+	} else if s.Stroke == "transparent" && s.Fill == "transparent" {
+		err = InvalidShapeFillStrokeError("Both fill and stroke cannot be transparent")
+		return
+	}
+
+	if s.ShapeType == PATH {
+		geometry, err = s.getPathGeometry()
+	} else {
+		geometry, err = s.getCircleGeometry()
+	}
+
+	if err == nil {
 		valid, err = geometry.isValid(xMax, yMax)
+	} else {
+		return
 	}
 
 	return
 }
 
-// Extracts commands from provided SVG string
-func (s *Shape) getCommands() (commands []Command, err error) {
-	var _commands []Command
-
+func (s Shape) getCircleCommands() (commands []CircleCommand, err error) {
 	normSvg := normalizeSvgString(s.ShapeSvgString)
 	for {
-		_command := Command{}
+		command := CircleCommand{}
+
+		re := regexp.MustCompile("(^.+?)([a-zA-Z])(.*)")
+		cmdString := strings.Trim(re.ReplaceAllString(normSvg, "$1"), " ")
+
+		val, _ := strconv.Atoi(string(cmdString[1:]))
+		cmdType := string(cmdString[0])
+		switch cmdType {
+		case "X", "x":
+			command.CmdType = cmdType
+			command.Val = int64(val)
+		case "Y", "y":
+			command.CmdType = cmdType
+			command.Val = int64(val)
+		case "R", "r":
+			command.CmdType = cmdType
+			command.Val = int64(val)
+		default:
+			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+			return
+		}
+
+		commands = append(commands, command)
+
+		normSvg = strings.Replace(normSvg, cmdString, "", 1)
+		normSvg = strings.Trim(normSvg, " ")
+		if normSvg == "" {
+			break
+		}
+	}
+
+	return
+}
+
+func (s Shape) getPathCommands() (commands []PathCommand, err error) {
+	normSvg := normalizeSvgString(s.ShapeSvgString)
+	for {
+		command := PathCommand{}
 
 		re := regexp.MustCompile("(^.+?)([a-zA-Z])(.*)")
 		cmdString := strings.Trim(re.ReplaceAllString(normSvg, "$1"), " ")
@@ -75,81 +140,84 @@ func (s *Shape) getCommands() (commands []Command, err error) {
 		cmdType := string(cmdString[0])
 		switch cmdType {
 		case "M", "m":
-			_command.CmdType = cmdType
+			command.CmdType = cmdType
 
 			if len(pos) < 2 || posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else if s.Fill != "transparent" {
-				if commandExists(Command{CmdType: "M"}, _commands) || commandExists(Command{CmdType: "m"}, _commands) {
-					return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				if pathCommandExists(PathCommand{CmdType: "M"}, commands) || pathCommandExists(PathCommand{CmdType: "m"}, commands) {
+					err = InvalidShapeSvgStringError(s.ShapeSvgString)
+					return
 				}
 			}
 
-			_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-			_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
+			command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+			command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 		case "H":
-			_command.CmdType = "H"
+			command.CmdType = "H"
 
 			if posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.X, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "V":
-			_command.CmdType = "V"
+			command.CmdType = "V"
 
 			if posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "L":
-			_command.CmdType = "L"
+			command.CmdType = "L"
 
 			if len(pos) < 2 || posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
+				command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 			}
 		case "h":
-			_command.CmdType = "h"
+			command.CmdType = "h"
 
 			if posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.X, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "v":
-			_command.CmdType = "v"
+			command.CmdType = "v"
 
 			if posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.Y, _ = strconv.ParseInt(pos[0], 10, 64)
 			}
 		case "l":
-			_command.CmdType = "l"
+			command.CmdType = "l"
 
 			if len(pos) < 2 || posEmpty {
-				return nil, InvalidShapeSvgStringError(s.ShapeSvgString)
+				err = InvalidShapeSvgStringError(s.ShapeSvgString)
+				return
 			} else {
-				_command.X, _ = strconv.ParseInt(pos[0], 10, 64)
-				_command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
+				command.X, _ = strconv.ParseInt(pos[0], 10, 64)
+				command.Y, _ = strconv.ParseInt(pos[1], 10, 64)
 			}
 		case "Z", "z":
-			_command.CmdType = cmdType
+			command.CmdType = cmdType
 		default:
 			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+			return
 		}
 
-		if err != nil {
-			break
-		}
-
-		if _command.CmdType != "" {
-			_commands = append(_commands, _command)
-		}
+		commands = append(commands, command)
 
 		normSvg = strings.Replace(normSvg, cmdString, "", 1)
 		normSvg = strings.Trim(normSvg, " ")
@@ -158,32 +226,75 @@ func (s *Shape) getCommands() (commands []Command, err error) {
 		}
 	}
 
-	if err == nil {
-		commands = _commands
+	return
+}
+
+//Gets the shape geometry of a a provided shape
+func (s Shape) GetGeometry() (geometry ShapeGeometry, err error) {
+	if s.isCircle() {
+		geometry, err = s.getCircleGeometry()
+	} else if s.isPath() {
+		geometry, err = s.getPathGeometry()
 	}
 
 	return
 }
 
-// Gets the shape geometry of a a provided shape
-func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
-	commands, err := s.getCommands()
+func (s Shape) getCircleGeometry() (geometry CircleGeometry, err error) {
+	commands, err := s.getCircleCommands()
 	if err != nil {
 		return
 	}
 
-	geometry.ShapeSvgString, geometry.Fill = s.ShapeSvgString, s.Fill
-	geometry.Min, geometry.Max = Point{}, Point{}
-	absPos, relPos := Point{0, 0}, Point{0, 0}
+	geometry = CircleGeometry{
+		ShapeSvgString: s.ShapeSvgString,
+		Fill:           s.Fill,
+		Min:            Point{},
+		Max:            Point{}}
 
+	for i := range commands {
+		command := commands[i]
+
+		switch command.CmdType {
+		case "X", "x":
+			geometry.Center.X = int64(command.Val)
+		case "Y", "y":
+			geometry.Center.Y = int64(command.Val)
+		case "R", "r":
+			geometry.Radius = command.Val
+		default:
+			err = InvalidShapeSvgStringError(s.ShapeSvgString)
+			return
+		}
+	}
+
+	geometry.Min.X, geometry.Min.Y = geometry.Center.X-geometry.Radius, geometry.Center.Y-geometry.Radius
+	geometry.Max.X, geometry.Max.Y = geometry.Center.X+geometry.Radius, geometry.Center.Y+geometry.Radius
+
+	return
+}
+
+func (s Shape) getPathGeometry() (geometry PathGeometry, err error) {
+	commands, err := s.getPathCommands()
+	if err != nil {
+		return
+	}
+
+	geometry = PathGeometry{
+		ShapeSvgString: s.ShapeSvgString,
+		Fill:           s.Fill,
+		Min:            Point{},
+		Max:            Point{}}
+
+	absPos, relPos := Point{0, 0}, Point{0, 0}
 	var currentVertices []Point
 	for i := range commands {
-		_command := commands[i]
+		command := commands[i]
 
-		switch _command.CmdType {
+		switch command.CmdType {
 		case "M":
-			absPos.X, absPos.Y = _command.X, _command.Y
-			relPos.X, relPos.Y = _command.X, _command.Y
+			absPos.X, absPos.Y = command.X, command.Y
+			relPos.X, relPos.Y = command.X, command.Y
 
 			if len(currentVertices) > 0 {
 				geometry.VertexSets = append(geometry.VertexSets, currentVertices)
@@ -192,7 +303,7 @@ func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "m":
-			absPos.X, absPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+			absPos.X, absPos.Y = relPos.X+command.X, relPos.Y+command.Y
 			relPos.X, relPos.Y = absPos.X, absPos.Y
 
 			if len(currentVertices) > 0 {
@@ -202,27 +313,27 @@ func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "H":
-			relPos.X = _command.X
+			relPos.X = command.X
 
 			currentVertices = append(currentVertices, Point{relPos.X, absPos.Y})
 		case "V":
-			relPos.Y = _command.Y
+			relPos.Y = command.Y
 
 			currentVertices = append(currentVertices, Point{absPos.X, relPos.Y})
 		case "L":
-			relPos.X, relPos.Y = _command.X, _command.Y
+			relPos.X, relPos.Y = command.X, command.Y
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "h":
-			relPos.X = relPos.X + _command.X
+			relPos.X = relPos.X + command.X
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "v":
-			relPos.Y = relPos.Y + _command.Y
+			relPos.Y = relPos.Y + command.Y
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "l":
-			relPos.X, relPos.Y = relPos.X+_command.X, relPos.Y+_command.Y
+			relPos.X, relPos.Y = relPos.X+command.X, relPos.Y+command.Y
 
 			currentVertices = append(currentVertices, Point{relPos.X, relPos.Y})
 		case "Z":
@@ -235,6 +346,8 @@ func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 
 			geometry.VertexSets = append(geometry.VertexSets, currentVertices)
 			currentVertices = []Point{}
+		default:
+			err = InvalidShapeSvgStringError(s.ShapeSvgString)
 		}
 
 		if i == 0 {
@@ -285,12 +398,27 @@ func (s *Shape) GetGeometry() (geometry ShapeGeometry, err error) {
 	return
 }
 
-type ShapeGeometry struct {
+// </SHAPE>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <SHAPE GEOMETRY>
+
+type ShapeGeometry interface {
+	GetInkCost() (inkUnits uint64)
+	isValid(xMax uint32, yMax uint32) (valid bool, err error)
+	HasOverlap(_s ShapeGeometry) bool
+	containsVertex(vertices []Point) bool
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////
+//			<PATH GEOMETRY>
+
+type PathGeometry struct {
 	ShapeSvgString string
 	Fill           string
+	Stroke         string
 
-	// Vertices     []Point
-	// LineSegments []LineSegment
 	VertexSets      []VertexSet
 	LineSegmentSets []LineSegmentSet
 	Min             Point
@@ -300,8 +428,8 @@ type ShapeGeometry struct {
 type VertexSet []Point
 type LineSegmentSet []LineSegment
 
-func (s *ShapeGeometry) getAllLineSegments() (lineSegments []LineSegment) {
-	for _, _lineSegments := range s.LineSegmentSets {
+func (p PathGeometry) getAllLineSegments() (lineSegments []LineSegment) {
+	for _, _lineSegments := range p.LineSegmentSets {
 		for _, lineSegment := range _lineSegments {
 			lineSegments = append(lineSegments, lineSegment)
 		}
@@ -310,8 +438,8 @@ func (s *ShapeGeometry) getAllLineSegments() (lineSegments []LineSegment) {
 	return
 }
 
-func (s *ShapeGeometry) getAllVertices() (vertices []Point) {
-	for _, _vertices := range s.VertexSets {
+func (p PathGeometry) getAllVertices() (vertices []Point) {
+	for _, _vertices := range p.VertexSets {
 		for _, vertex := range _vertices {
 			vertices = append(vertices, vertex)
 		}
@@ -320,15 +448,91 @@ func (s *ShapeGeometry) getAllVertices() (vertices []Point) {
 	return
 }
 
+func (p PathGeometry) computePerimeter() (perimiter uint64) {
+	lineSegments := p.getAllLineSegments()
+	for _, lineSegment := range lineSegments {
+		perimiter = perimiter + lineSegment.Length()
+	}
+
+	return
+}
+
+// Computes the total area within a polygon using a scanline
+// descending down the y-axis
+// NOTE: This computes the actual number of pixels required to draw shape
+// Doesn't exlude the actual line segments
+func (p PathGeometry) computeArea() (area uint64) {
+	lineSegments := p.LineSegmentSets[0]
+	for y := p.Min.Y; y <= p.Max.Y; y++ {
+		var intersects []Point
+
+		scanLine := getLineSegment(Point{p.Min.X, y}, Point{p.Max.X, y})
+
+		// Check intersections with all line segments
+		for _, l := range lineSegments {
+			if scanLine.IsColinear(l) { // If parallel, extract the start and end points
+				intersects = append(intersects, l.Start, l.End)
+			} else { // Get intersection
+				hasIntersect := l.Intersects(scanLine)
+				if intersect, err := l.GetIntersect(scanLine); hasIntersect && err == nil {
+					intersects = append(intersects, intersect)
+				}
+			}
+		}
+
+		/*
+			Compute the lengths for all line segments generated by intersects on scanline.
+
+			Example of cases (where the letters are intersects/vertices):
+			*Joint + non-vertices*
+				ABBC 		 -> AB BC 				 [Edge then joint then edge]
+				{B is a shared vertex}
+
+			*Parallel path and non-vertices*
+				ABBCCDDA -> AB BC CD DA    [Rectangle]
+				{A B C D are shared vertices}
+
+				AABBC 	 -> AB BC 				 [Parallel line then edge]
+				{A B are shared vertices}
+
+			*Non-vertices*
+				ABCDEF 	 -> AB CD	EF			 [Any polygon where scanline not on vertices]
+		*/
+		if len(intersects) > 1 {
+			var computedSegments []LineSegment
+
+			i := 0
+			for {
+				lineSegment := getLineSegment(intersects[i], intersects[i+1])
+
+				if lineSegment.Start == lineSegment.End { // If both vertices are same point, incremement by one
+					i = i + 1
+				} else if segmentExists(lineSegment, computedSegments) { // If we already calculated this segment, skip
+					i = i + 2
+				} else { // Otherwise, we have a valid segment, add length to area
+					computedSegments = append(computedSegments, lineSegment)
+
+					area = area + lineSegment.Length()
+					i = i + 2
+				}
+
+				if len(intersects) <= (i + 1) {
+					break
+				}
+			}
+		}
+	}
+
+	return
+}
+
 // Computes the ink required for the given shape according
 // to the fill specification.
-func (s *ShapeGeometry) GetInkCost() (inkUnits uint64) {
-	if s.Fill == "transparent" {
-		for _, lineSegments := range s.LineSegmentSets {
-			inkUnits = inkUnits + computePerimeter(lineSegments)
-		}
+func (p PathGeometry) GetInkCost() (inkUnits uint64) {
+	if p.Fill == "transparent" {
+		inkUnits = p.computePerimeter()
 	} else {
-		inkUnits = computePixelArea(s.Min, s.Max, s.LineSegmentSets[0])
+		inkUnits = p.computeArea()
 	}
 
 	return
@@ -337,25 +541,25 @@ func (s *ShapeGeometry) GetInkCost() (inkUnits uint64) {
 // Determines if the following conditions hold:
 // - The shape is within the given bounding requirements
 // - The shape is non-overlapping if not transparent
-func (s *ShapeGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
+func (p PathGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 	valid = true
 
-	for _, vertex := range s.getAllVertices() {
+	for _, vertex := range p.getAllVertices() {
 		if valid = vertex.inBound(xMax, yMax); !valid {
 			err = new(OutOfBoundsError)
 			return
 		}
 	}
 
-	if s.Fill != "transparent" {
-		lineSegments := s.LineSegmentSets[0]
+	if p.Fill != "transparent" {
+		lineSegments := p.LineSegmentSets[0]
 		for i := range lineSegments {
 			curSeg := lineSegments[i]
 
 			for j := range lineSegments {
 				if i != j && curSeg.Intersects(lineSegments[j]) == true {
 					valid = false
-					err = InvalidShapeSvgStringError(s.ShapeSvgString)
+					err = InvalidShapeSvgStringError(p.ShapeSvgString)
 
 					return
 				}
@@ -371,26 +575,39 @@ func (s *ShapeGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error
 }
 
 // Determines if a proposed shape overlape this shape.
-func (s *ShapeGeometry) HasOverlap(_s ShapeGeometry) bool {
-	// Easy preliminary: does the bounding box of _s encompass s
-	if _s.Fill != "transparent" && (_s.Min.X <= s.Min.X && _s.Min.Y <= s.Min.Y) && (_s.Max.X >= s.Max.X && _s.Max.Y >= s.Max.Y) {
-		return true
+func (g PathGeometry) HasOverlap(_g ShapeGeometry) bool {
+	if strings.HasSuffix(reflect.TypeOf(_g).String(), "PathGeometry") {
+		_gP, _ := _g.(PathGeometry)
+		return g.hasPathOverlap(_gP)
+	} else {
+		_gC, _ := _g.(CircleGeometry)
+		return g.hasCircleOverlap(_gC)
 	}
 
-	if intersectExists(s.getAllLineSegments(), _s.getAllLineSegments()) {
-		return true
-	} else if s.Fill != "transparent" && s.containsVertex(_s.getAllVertices()) {
-		return true
-	} else {
-		return false
+	return false
+}
+
+func (g PathGeometry) hasPathOverlap(_g PathGeometry) (overlap bool) {
+	if intersectExists(g.getAllLineSegments(), _g.getAllLineSegments()) {
+		overlap = true
+	} else if g.Fill != "transparent" && g.containsVertex(_g.getAllVertices()) {
+		overlap = true
+	} else if _g.Fill != "transparent" && _g.containsVertex(g.getAllVertices()) {
+		overlap = true
 	}
+
+	return
+}
+
+func (p PathGeometry) hasCircleOverlap(_c CircleGeometry) bool {
+	return _c.HasOverlap(p)
 }
 
 // Determines if any of the vertices are contained with a polygon, using a scanline.
-func (s *ShapeGeometry) containsVertex(vertices []Point) bool {
-	min := s.Min
-	max := s.Max
-	lineSegments := s.getAllLineSegments()
+func (p PathGeometry) containsVertex(vertices []Point) bool {
+	min := p.Min
+	max := p.Max
+	lineSegments := p.getAllLineSegments()
 
 	for y := min.Y; y <= max.Y; y++ {
 		var polyIntersects []Point
@@ -426,6 +643,214 @@ func (s *ShapeGeometry) containsVertex(vertices []Point) bool {
 	return false
 }
 
+//			</PATH GEOMETRY>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+//			<CIRCLE GEOMETRY>
+type CircleGeometry struct {
+	ShapeSvgString string
+	Fill           string
+	Stroke         string
+
+	Radius int64
+	Center Point
+	Min    Point
+	Max    Point
+}
+
+func (c CircleGeometry) getLineIntersects(l LineSegment) (intersects []Point) {
+	xC, yC, r := float64(c.Center.X), float64(c.Center.Y), float64(c.Radius)
+	lA, lB, lC := float64(l.A), float64(l.B), float64(l.C)
+	if lA == 0 { // y is constant
+		var y float64 = float64(lC / lB)
+
+		intersects = solveCircleForX(y, xC, yC, r, l)
+	} else if lB == 0 { // x is constant
+		var x float64 = float64(lC / lA)
+
+		intersects = solveCircleForY(x, xC, yC, r, l)
+	} else {
+		lA_lB := float64(lA / lB)
+		lC_lB := float64(lC / lB)
+
+		var a float64 = 1.0 + (lA_lB * lA_lB)
+		var b float64 = -2.0 * (xC + (lA_lB * (lC_lB - yC)))
+		var c float64 = (xC * xC) + math.Pow(lC_lB-yC, 2) - (r * r)
+
+		var d float64 = (b * b) - (4.0 * a * c)
+		if d < 0 {
+			return
+		} else if d == 0 {
+			var x float64 = (-1 * b) / (2 * a)
+
+			intersects = solveCircleForY(x, xC, yC, r, l)
+		} else {
+			d = math.Sqrt(float64(d))
+			b = -1.0 * b
+
+			var x1 float64 = (b + d) / (2.0 * a)
+			var x2 float64 = (b - d) / (2.0 * a)
+
+			p1 := solveCircleForY(x1, xC, yC, r, l)
+			p2 := solveCircleForY(x2, xC, yC, r, l)
+
+			if len(p1) > 0 {
+				intersects = append(intersects, p1[0])
+			}
+
+			if len(p2) > 0 {
+				intersects = append(intersects, p2[0])
+			}
+		}
+	}
+
+	return
+}
+
+func (c CircleGeometry) computePerimeter() (perimeter uint64) {
+	return uint64(math.Ceil(2 * math.Pi * float64(c.Radius)))
+}
+
+func (c CircleGeometry) computeArea() (area uint64) {
+	for y := c.Min.Y; y <= c.Max.Y; y++ {
+		scanLine := getLineSegment(Point{c.Min.X, y}, Point{c.Max.X, y})
+		intersects := c.getLineIntersects(scanLine)
+		if len(intersects) > 1 {
+			lineSegment := getLineSegment(intersects[0], intersects[1])
+
+			area = area + lineSegment.Length()
+		} else if len(intersects) == 1 {
+			area = area + 1
+		}
+	}
+
+	return
+}
+
+func (c CircleGeometry) GetInkCost() (inkUnits uint64) {
+	if c.Fill == "transparent" {
+		inkUnits = c.computePerimeter()
+	} else {
+		inkUnits = c.computeArea()
+	}
+
+	return
+}
+func (c CircleGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
+	if c.Min.inBound(xMax, yMax) && c.Max.inBound(xMax, yMax) {
+		return true, nil
+	} else {
+		return false, new(OutOfBoundsError)
+	}
+}
+
+func (c CircleGeometry) HasOverlap(_g ShapeGeometry) bool {
+	if strings.HasSuffix(reflect.TypeOf(_g).String(), "PathGeometry") {
+		_gP, _ := _g.(PathGeometry)
+		return c.hasPathOverlap(_gP)
+	} else {
+		_gC, _ := _g.(CircleGeometry)
+		return c.hasCircleOverlap(_gC)
+	}
+
+	return false
+}
+
+func (c CircleGeometry) hasPathOverlap(p PathGeometry) bool {
+	vertices := p.getAllVertices()
+	lineSegments := p.getAllLineSegments()
+
+	// Does the circle contain any of the polygons vertices?
+	if c.Fill != "transparent" && c.containsVertex(vertices) {
+		return true
+	}
+
+	// Does the circle intersect any of the polygons line segments?
+	for _, l := range lineSegments {
+		if len(c.getLineIntersects(l)) > 0 {
+			return true
+		}
+	}
+
+	// Does the polygon contain the circle?
+	if p.Fill != "transparent" && p.containsVertex([]Point{c.Center}) {
+		return true
+	}
+
+	return false
+}
+
+func (c CircleGeometry) hasCircleOverlap(_c CircleGeometry) bool {
+	// If they are same size, check distance between centers against radii.
+	if c.Radius == _c.Radius {
+		if dist := c.Center.getDist(_c.Center); dist <= float64(c.Radius+_c.Radius) {
+			return true
+		}
+	} else {
+		var smaller, bigger CircleGeometry
+		if _c.Radius < c.Radius {
+			smaller, bigger = _c, c
+		} else {
+			smaller, bigger = c, _c
+		}
+
+		dist := smaller.Center.getDist(bigger.Center)
+		if dist > float64(smaller.Radius+bigger.Radius) {
+			return false
+		} else if bigger.Fill != "transparent" {
+			return true
+		}
+
+		_dist := dist - float64(bigger.Radius)
+		if _dist > 0 && _dist <= float64(smaller.Radius) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (c CircleGeometry) containsVertex(vertices []Point) bool {
+	for _, v := range vertices {
+		if c.Center.getDist(v) <= float64(c.Radius) {
+			return true
+		}
+	}
+
+	return false
+}
+
+//			</CIRCLE GEOMETRY>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+// </SHAPE GEOMETRY>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <POINT>
+
+// Represents a point with (x, y) coordinate
+type Point struct {
+	X int64
+	Y int64
+}
+
+func (p Point) inBound(xMax uint32, yMax uint32) bool {
+	return p.X >= 0 && p.Y >= 0 && p.X < int64(xMax) && p.Y < int64(yMax)
+}
+
+func (p Point) getDist(_p Point) float64 {
+	x1, x2, y1, y2 := p.X, _p.X, p.Y, _p.Y
+	return math.Sqrt(math.Pow(float64(x2-x1), 2) + math.Pow(float64(y2-y1), 2))
+}
+
+// </POINT>
+////////////////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// <LINE SEGMENT>
+
 // Represents a line segment with start and end points
 // and implicit equation format ax + by = c
 type LineSegment struct {
@@ -450,12 +875,20 @@ func (l LineSegment) Length() uint64 {
 	}
 }
 
-// Determines if a point lies on a line segment
+// Determines if a point lies on a line segment -- Assumes point found by intersection
 func (l LineSegment) HasPoint(p Point) bool {
 	x1, y1, x2, y2 := l.Start.X, l.Start.Y, l.End.X, l.End.Y
 
 	return ((y1 <= p.Y && p.Y <= y2) || (y1 >= p.Y && p.Y >= y2)) &&
 		((x1 <= p.X && p.X <= x2) || (x1 >= p.X && p.X >= x2))
+}
+
+// Determines if a point lies on a line segment -- Assumes point found by intersection
+func (l LineSegment) hasFloatPoint(x float64, y float64) bool {
+	x1, y1, x2, y2 := float64(l.Start.X), float64(l.Start.Y), float64(l.End.X), float64(l.End.Y)
+
+	return ((y1 <= y && y <= y2) || (y1 >= y && y >= y2)) &&
+		((x1 <= x && x <= x2) || (x1 >= x && x >= x2))
 }
 
 // Determines if two line segments are parallel
@@ -527,14 +960,14 @@ func (l LineSegment) Intersects(_l LineSegment) bool {
 	}
 }
 
-// </OBJECT DEFINTIONS>
+// </LINE SEGMENT>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // <FUNCTIONS>
 
 // Determines if the given command exists in a set of commands
-func commandExists(c Command, commands []Command) bool {
+func pathCommandExists(c PathCommand, commands []PathCommand) bool {
 	for _, command := range commands {
 		if c.CmdType == command.CmdType {
 			return true
@@ -663,15 +1096,6 @@ func getLineSegments(vertices []Point) (lineSegments []LineSegment) {
 	return
 }
 
-// Computes the total length of all segments
-func computePerimeter(lineSegments []LineSegment) (perimeter uint64) {
-	for _, lineSegment := range lineSegments {
-		perimeter = perimeter + lineSegment.Length()
-	}
-
-	return
-}
-
 // Computes the regular geometric area of polygon
 // NOTE: This computes the 'geometric' area, but which doesnt match the actual pixel-based area
 func computeGeoArea(vertices []Point) uint64 {
@@ -690,68 +1114,70 @@ func computeGeoArea(vertices []Point) uint64 {
 	return uint64(area / 2)
 }
 
-// Computes the total area within a polygon using a scanline
-// descending down the y-axis
-// NOTE: This computes the actual number of pixels required to draw shape
-// Doesn't exlude the actual line segments
-func computePixelArea(min Point, max Point, lineSegments []LineSegment) (area uint64) {
-	for y := min.Y; y <= max.Y; y++ {
-		var intersects []Point
+func solveCircleForY(x float64, xC float64, yC float64, r float64, onLineSegment LineSegment) (points []Point) {
+	var _points [][]float64
 
-		scanLine := getLineSegment(Point{min.X, y}, Point{max.X, y})
+	var a float64 = 1.0
+	var b float64 = -2.0 * yC
+	var c float64 = (yC * yC) + math.Pow(x-xC, 2) - (r * r)
 
-		// Check intersections with all line segments
-		for _, l := range lineSegments {
-			if scanLine.IsColinear(l) { // If parallel, extract the start and end points
-				intersects = append(intersects, l.Start, l.End)
-			} else { // Get intersection
-				hasIntersect := l.Intersects(scanLine)
-				if intersect, err := l.GetIntersect(scanLine); hasIntersect && err == nil {
-					intersects = append(intersects, intersect)
-				}
-			}
+	d := float64((b * b) - (4.0 * a * c))
+	if d < 0 {
+		return
+	} else if d == 0 {
+		var y float64 = (-1 * b) / (2 * a)
+
+		_points = append(_points, []float64{x, y})
+	} else {
+		_d := math.Sqrt(float64(d))
+
+		var y1 float64 = ((-1 * b) + _d) / (2 * a)
+		var y2 float64 = ((-1 * b) - _d) / (2 * a)
+
+		_points = append(_points, []float64{x, y1}, []float64{x, y2})
+	}
+
+	for _, p := range _points {
+		if onLineSegment.hasFloatPoint(p[0], p[1]) {
+			x := int64(math.Ceil(p[0]))
+			y := int64(math.Ceil(p[1]))
+
+			points = append(points, Point{x, y})
 		}
+	}
 
-		/*
-			Compute the lengths for all line segments generated by intersects on scanline.
+	return
+}
 
-			Example of cases (where the letters are intersects/vertices):
-			*Joint + non-vertices*
-				ABBC 		 -> AB BC 				 [Edge then joint then edge]
-				{B is a shared vertex}
+func solveCircleForX(y float64, xC float64, yC float64, r float64, onLineSegment LineSegment) (points []Point) {
+	var _points [][]float64
 
-			*Parallel path and non-vertices*
-				ABBCCDDA -> AB BC CD DA    [Rectangle]
-				{A B C D are shared vertices}
+	var a float64 = 1.0
+	var b float64 = -2.0 * xC
+	var c float64 = (xC * xC) + math.Pow(y-yC, 2) - (r * r)
 
-				AABBC 	 -> AB BC 				 [Parallel line then edge]
-				{A B are shared vertices}
+	d := float64((b * b) - (4.0 * a * c))
+	if d < 0 {
+		return
+	} else if d == 0 {
+		var x float64 = (-1 * b) / (2 * a)
 
-			*Non-vertices*
-				ABCDEF 	 -> AB CD	EF			 [Any polygon where scanline not on vertices]
-		*/
-		if len(intersects) > 1 {
-			var computedSegments []LineSegment
+		_points = append(_points, []float64{x, y})
+	} else {
+		_d := math.Sqrt(float64(d))
 
-			i := 0
-			for {
-				lineSegment := getLineSegment(intersects[i], intersects[i+1])
+		var x1 float64 = ((-1 * b) + _d) / (2 * a)
+		var x2 float64 = ((-1 * b) - _d) / (2 * a)
 
-				if lineSegment.Start == lineSegment.End { // If both vertices are same point, incremement by one
-					i = i + 1
-				} else if segmentExists(lineSegment, computedSegments) { // If we already calculated this segment, skip
-					i = i + 2
-				} else { // Otherwise, we have a valid segment, add length to area
-					computedSegments = append(computedSegments, lineSegment)
+		_points = append(_points, []float64{x1, y}, []float64{x2, y})
+	}
 
-					area = area + lineSegment.Length()
-					i = i + 2
-				}
+	for _, p := range _points {
+		if onLineSegment.hasFloatPoint(p[0], p[1]) {
+			x := int64(math.Ceil(p[0]))
+			y := int64(math.Ceil(p[1]))
 
-				if len(intersects) <= (i + 1) {
-					break
-				}
-			}
+			points = append(points, Point{x, y})
 		}
 	}
 

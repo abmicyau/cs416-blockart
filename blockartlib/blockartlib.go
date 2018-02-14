@@ -25,9 +25,7 @@ type ShapeType int
 const (
 	// Path shape.
 	PATH ShapeType = iota
-
-	// Circle shape (extra credit).
-	// CIRCLE
+	CIRCLE
 )
 
 // Represents the type of operation for a shape on the canvas

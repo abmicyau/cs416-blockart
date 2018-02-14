@@ -572,17 +572,6 @@ func (m *Miner) addBlockChild(block *Block, hash string) {
 }
 
 func (m *Miner) validateNewShape(s shapelib.Shape) (inkCost uint32, err error) {
-	if s.Stroke == "" {
-		err = errorLib.InvalidShapeFillStrokeError("Shape stroke must be specified")
-		return
-	} else if s.Fill == "" {
-		err = errorLib.InvalidShapeFillStrokeError("Shape fill must be specified")
-		return
-	} else if s.Stroke == "transparent" && s.Fill == "transparent" {
-		err = errorLib.InvalidShapeFillStrokeError("Both fill and stroke cannot be transparent")
-		return
-	}
-
 	canvasSettings := m.settings.CanvasSettings
 	_, geo, err := s.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax)
 	if err != nil {

@@ -10,6 +10,7 @@ package blockartlib
 import (
 	"crypto/ecdsa"
 	"crypto/rand"
+	"encoding/gob"
 	"fmt"
 	"net/rpc"
 	"os"
@@ -240,6 +241,8 @@ func (e InvalidBlockHashError) Error() string {
 // - DisconnectedError
 func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, setting CanvasSettings, err error) {
 	// Greet the miner and retrieve a nonce
+	gob.Register(errorLib.InvalidBlockHashError(""))
+
 	miner, err := rpc.Dial("tcp", minerAddr)
 	if checkError(err) != nil {
 		return CanvasInstance{}, CanvasSettings{}, DisconnectedError(minerAddr)
@@ -271,7 +274,9 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 	}
 
 	token := response.Payload[0].(string)
-	setting = response.Payload[1].(CanvasSettings)
+	settingX := response.Payload[1].(uint32)
+	settingY := response.Payload[2].(uint32)
+	setting = CanvasSettings{CanvasXMax: settingX, CanvasYMax: settingY}
 	canvas = CanvasInstance{minerAddr, miner, token}
 
 	return canvas, setting, nil
@@ -290,7 +295,7 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 	request.Token = c.Token
 	request.Payload = make([]interface{}, 5)
 	request.Payload[0] = validateNum
-	request.Payload[1] = shapeType
+	request.Payload[1] = int(shapeType)
 	request.Payload[2] = shapeSvgString
 	request.Payload[3] = fill
 	request.Payload[4] = stroke
@@ -514,7 +519,6 @@ func (c CanvasInstance) GetChildren(blockHash string) (blockHashes []string, err
 	}
 
 	blockHashes = response.Payload[0].([]string)
-
 	return blockHashes, nil
 }
 

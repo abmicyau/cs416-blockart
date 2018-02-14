@@ -382,6 +382,10 @@ func TestOverlap(t *testing.T) {
 	shapeSquare2Filled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 55 55 h 10 v -10 h -10 z"}
 	shapeSquare3 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 20 80 h 60 v -60 h -60 z"}
 	shapeSquare3Filled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 20 80 h 60 v -60 h -60 z"}
+	shapeTriangle1 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 30 35 l 10 5 l -10 5 Z"}
+	shapeTriangle1Filled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 30 35 l 10 5 l -10 5 Z"}
+	shapeTriangle2 := Shape{ShapeType: PATH, Fill: "transparent", ShapeSvgString: "M 30 35 l 20 5 l -20 10 Z"}
+	shapeTriangle2Filled := Shape{ShapeType: PATH, Fill: "non-transparent", ShapeSvgString: "M 30 35 l 20 5 l -20 10 Z"}
 	geoCircle1, _ := shapeCircle1.GetGeometry()
 	geoCircle1Filled, _ := shapeCircle1Filled.GetGeometry()
 	geoCircle2, _ := shapeCircle2.GetGeometry()
@@ -393,6 +397,10 @@ func TestOverlap(t *testing.T) {
 	geoSquare2Filled, _ := shapeSquare2Filled.GetGeometry()
 	geoSquare3, _ := shapeSquare3.GetGeometry()
 	geoSquare3Filled, _ := shapeSquare3Filled.GetGeometry()
+	geoTriangle1, _ := shapeTriangle1.GetGeometry()
+	geoTriangle1Filled, _ := shapeTriangle1Filled.GetGeometry()
+	geoTriangle2, _ := shapeTriangle2.GetGeometry()
+	geoTriangle2Filled, _ := shapeTriangle2Filled.GetGeometry()
 
 	// Test path surrounding circle
 	if overlap := geoSquare3.HasOverlap(geoCircle1); overlap != false {
@@ -445,7 +453,7 @@ func TestOverlap(t *testing.T) {
 		t.Error("Expected filled circle surrounding circle to overlap.")
 	}
 
-	// Test circle intersecting polygon
+	// Test circle intersecting square
 	if overlap := geoCircle3.HasOverlap(geoSquare2); overlap != true {
 		t.Error("Expected circle intersecting polygon to overlap.")
 	}
@@ -467,6 +475,55 @@ func TestOverlap(t *testing.T) {
 	}
 
 	if overlap := geoSquare2Filled.HasOverlap(geoCircle3Filled); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	// Test circle intersecting triangle
+	if overlap := geoCircle2.HasOverlap(geoTriangle1); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoTriangle1.HasOverlap(geoCircle2); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoCircle2Filled.HasOverlap(geoTriangle1); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoTriangle1.HasOverlap(geoCircle2Filled); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoCircle2Filled.HasOverlap(geoTriangle1Filled); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoTriangle1Filled.HasOverlap(geoCircle2Filled); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoCircle2.HasOverlap(geoTriangle2); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoTriangle2.HasOverlap(geoCircle2); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoCircle2Filled.HasOverlap(geoTriangle2); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoTriangle2.HasOverlap(geoCircle2Filled); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoCircle2Filled.HasOverlap(geoTriangle2Filled); overlap != true {
+		t.Error("Expected circle intersecting polygon to overlap.")
+	}
+
+	if overlap := geoTriangle2Filled.HasOverlap(geoCircle2Filled); overlap != true {
 		t.Error("Expected circle intersecting polygon to overlap.")
 	}
 

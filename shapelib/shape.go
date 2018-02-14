@@ -429,8 +429,8 @@ type PathGeometry struct {
 type VertexSet []Point
 type LineSegmentSet []LineSegment
 
-func (s PathGeometry) getAllLineSegments() (lineSegments []LineSegment) {
-	for _, _lineSegments := range s.LineSegmentSets {
+func (p PathGeometry) getAllLineSegments() (lineSegments []LineSegment) {
+	for _, _lineSegments := range p.LineSegmentSets {
 		for _, lineSegment := range _lineSegments {
 			lineSegments = append(lineSegments, lineSegment)
 		}
@@ -439,8 +439,8 @@ func (s PathGeometry) getAllLineSegments() (lineSegments []LineSegment) {
 	return
 }
 
-func (s PathGeometry) getAllVertices() (vertices []Point) {
-	for _, _vertices := range s.VertexSets {
+func (p PathGeometry) getAllVertices() (vertices []Point) {
+	for _, _vertices := range p.VertexSets {
 		for _, vertex := range _vertices {
 			vertices = append(vertices, vertex)
 		}
@@ -449,8 +449,8 @@ func (s PathGeometry) getAllVertices() (vertices []Point) {
 	return
 }
 
-func (s PathGeometry) computePerimeter() (perimiter uint64) {
-	lineSegments := s.getAllLineSegments()
+func (p PathGeometry) computePerimeter() (perimiter uint64) {
+	lineSegments := p.getAllLineSegments()
 	for _, lineSegment := range lineSegments {
 		perimiter = perimiter + lineSegment.Length()
 	}
@@ -462,12 +462,12 @@ func (s PathGeometry) computePerimeter() (perimiter uint64) {
 // descending down the y-axis
 // NOTE: This computes the actual number of pixels required to draw shape
 // Doesn't exlude the actual line segments
-func (s PathGeometry) computeArea() (area uint64) {
-	lineSegments := s.LineSegmentSets[0]
-	for y := s.Min.Y; y <= s.Max.Y; y++ {
+func (p PathGeometry) computeArea() (area uint64) {
+	lineSegments := p.LineSegmentSets[0]
+	for y := p.Min.Y; y <= p.Max.Y; y++ {
 		var intersects []Point
 
-		scanLine := getLineSegment(Point{s.Min.X, y}, Point{s.Max.X, y})
+		scanLine := getLineSegment(Point{p.Min.X, y}, Point{p.Max.X, y})
 
 		// Check intersections with all line segments
 		for _, l := range lineSegments {
@@ -529,11 +529,11 @@ func (s PathGeometry) computeArea() (area uint64) {
 
 // Computes the ink required for the given shape according
 // to the fill specification.
-func (s PathGeometry) GetInkCost() (inkUnits uint64) {
-	if s.Fill == "transparent" {
-		inkUnits = s.computePerimeter()
+func (p PathGeometry) GetInkCost() (inkUnits uint64) {
+	if p.Fill == "transparent" {
+		inkUnits = p.computePerimeter()
 	} else {
-		inkUnits = s.computeArea()
+		inkUnits = p.computeArea()
 	}
 
 	return
@@ -542,25 +542,25 @@ func (s PathGeometry) GetInkCost() (inkUnits uint64) {
 // Determines if the following conditions hold:
 // - The shape is within the given bounding requirements
 // - The shape is non-overlapping if not transparent
-func (s PathGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
+func (p PathGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
 	valid = true
 
-	for _, vertex := range s.getAllVertices() {
+	for _, vertex := range p.getAllVertices() {
 		if valid = vertex.inBound(xMax, yMax); !valid {
 			err = new(OutOfBoundsError)
 			return
 		}
 	}
 
-	if s.Fill != "transparent" {
-		lineSegments := s.LineSegmentSets[0]
+	if p.Fill != "transparent" {
+		lineSegments := p.LineSegmentSets[0]
 		for i := range lineSegments {
 			curSeg := lineSegments[i]
 
 			for j := range lineSegments {
 				if i != j && curSeg.Intersects(lineSegments[j]) == true {
 					valid = false
-					err = InvalidShapeSvgStringError(s.ShapeSvgString)
+					err = InvalidShapeSvgStringError(p.ShapeSvgString)
 
 					return
 				}
@@ -600,15 +600,15 @@ func (g PathGeometry) hasPathOverlap(_g PathGeometry) (overlap bool) {
 	return
 }
 
-func (g PathGeometry) hasCircleOverlap(_g CircleGeometry) bool {
-	return _g.HasOverlap(g)
+func (p PathGeometry) hasCircleOverlap(_c CircleGeometry) bool {
+	return _c.HasOverlap(p)
 }
 
 // Determines if any of the vertices are contained with a polygon, using a scanline.
-func (s PathGeometry) containsVertex(vertices []Point) bool {
-	min := s.Min
-	max := s.Max
-	lineSegments := s.getAllLineSegments()
+func (p PathGeometry) containsVertex(vertices []Point) bool {
+	min := p.Min
+	max := p.Max
+	lineSegments := p.getAllLineSegments()
 
 	for y := min.Y; y <= max.Y; y++ {
 		var polyIntersects []Point
@@ -660,22 +660,23 @@ type CircleGeometry struct {
 	Max    Point
 }
 
-func (g CircleGeometry) getLineIntersects(l LineSegment) (intersects []Point) {
-	xC, yC, r := float64(g.Center.X), float64(g.Center.Y), float64(g.Radius)
-	if l.A == 0 { // y is constant
-		var y float64 = float64(l.C / l.B)
+func (c CircleGeometry) getLineIntersects(l LineSegment) (intersects []Point) {
+	xC, yC, r := float64(c.Center.X), float64(c.Center.Y), float64(c.Radius)
+	lA, lB, lC := float64(l.A), float64(l.B), float64(l.C)
+	if lA == 0 { // y is constant
+		var y float64 = float64(lC / lB)
 
 		intersects = solveCircleForX(y, xC, yC, r, l)
-	} else if l.B == 0 { // x is constant
-		var x float64 = float64(l.C / l.A)
+	} else if lB == 0 { // x is constant
+		var x float64 = float64(lC / lA)
 
 		intersects = solveCircleForY(x, xC, yC, r, l)
 	} else {
-		lA_lB := float64(l.A / l.B)
-		lC_lB := float64(l.C / l.B)
+		lA_lB := float64(lA / lB)
+		lC_lB := float64(lC / lB)
 
-		var a float64 = float64(lA_lB*lA_lB) + 1.0
-		var b float64 = (-2.0 * (xC)) - (2.0 * (lA_lB * (lC_lB * yC)))
+		var a float64 = 1.0 + (lA_lB * lA_lB)
+		var b float64 = -2.0 * (xC + (lA_lB * (lC_lB - yC)))
 		var c float64 = (xC * xC) + math.Pow(lC_lB-yC, 2) - (r * r)
 
 		var d float64 = (b * b) - (4.0 * a * c)
@@ -686,10 +687,11 @@ func (g CircleGeometry) getLineIntersects(l LineSegment) (intersects []Point) {
 
 			intersects = solveCircleForY(x, xC, yC, r, l)
 		} else {
-			_d := math.Sqrt(float64(d))
+			d = math.Sqrt(float64(d))
+			b = -1.0 * b
 
-			var x1 float64 = (float64(-1*b) + _d) / float64(2*a)
-			var x2 float64 = (float64(-1*b) - _d) / float64(2*a)
+			var x1 float64 = (b + d) / (2.0 * a)
+			var x2 float64 = (b - d) / (2.0 * a)
 
 			p1 := solveCircleForY(x1, xC, yC, r, l)
 			p2 := solveCircleForY(x2, xC, yC, r, l)
@@ -707,14 +709,14 @@ func (g CircleGeometry) getLineIntersects(l LineSegment) (intersects []Point) {
 	return
 }
 
-func (g CircleGeometry) computePerimeter() (perimeter uint64) {
-	return uint64(math.Ceil(2 * math.Pi * float64(g.Radius)))
+func (c CircleGeometry) computePerimeter() (perimeter uint64) {
+	return uint64(math.Ceil(2 * math.Pi * float64(c.Radius)))
 }
 
-func (g CircleGeometry) computeArea() (area uint64) {
-	for y := g.Min.Y; y <= g.Max.Y; y++ {
-		scanLine := getLineSegment(Point{g.Min.X, y}, Point{g.Max.X, y})
-		intersects := g.getLineIntersects(scanLine)
+func (c CircleGeometry) computeArea() (area uint64) {
+	for y := c.Min.Y; y <= c.Max.Y; y++ {
+		scanLine := getLineSegment(Point{c.Min.X, y}, Point{c.Max.X, y})
+		intersects := c.getLineIntersects(scanLine)
 		if len(intersects) > 1 {
 			lineSegment := getLineSegment(intersects[0], intersects[1])
 
@@ -727,71 +729,71 @@ func (g CircleGeometry) computeArea() (area uint64) {
 	return
 }
 
-func (g CircleGeometry) GetInkCost() (inkUnits uint64) {
-	if g.Fill == "transparent" {
-		inkUnits = g.computePerimeter()
+func (c CircleGeometry) GetInkCost() (inkUnits uint64) {
+	if c.Fill == "transparent" {
+		inkUnits = c.computePerimeter()
 	} else {
-		inkUnits = g.computeArea()
+		inkUnits = c.computeArea()
 	}
 
 	return
 }
-func (g CircleGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
-	if g.Min.inBound(xMax, yMax) && g.Max.inBound(xMax, yMax) {
+func (c CircleGeometry) isValid(xMax uint32, yMax uint32) (valid bool, err error) {
+	if c.Min.inBound(xMax, yMax) && c.Max.inBound(xMax, yMax) {
 		return true, nil
 	} else {
 		return false, new(OutOfBoundsError)
 	}
 }
 
-func (g CircleGeometry) HasOverlap(_g ShapeGeometry) bool {
+func (c CircleGeometry) HasOverlap(_g ShapeGeometry) bool {
 	if strings.HasSuffix(reflect.TypeOf(_g).String(), "PathGeometry") {
 		_gP, _ := _g.(PathGeometry)
-		return g.hasPathOverlap(_gP)
+		return c.hasPathOverlap(_gP)
 	} else {
 		_gC, _ := _g.(CircleGeometry)
-		return g.hasCircleOverlap(_gC)
+		return c.hasCircleOverlap(_gC)
 	}
 
 	return false
 }
 
-func (g CircleGeometry) hasPathOverlap(_g PathGeometry) bool {
-	vertices := _g.getAllVertices()
-	lineSegments := _g.getAllLineSegments()
+func (c CircleGeometry) hasPathOverlap(p PathGeometry) bool {
+	vertices := p.getAllVertices()
+	lineSegments := p.getAllLineSegments()
 
 	// Does the circle contain any of the polygons vertices?
-	if g.Fill != "transparent" && g.containsVertex(vertices) {
+	if c.Fill != "transparent" && c.containsVertex(vertices) {
 		return true
 	}
 
 	// Does the circle intersect any of the polygons line segments?
 	for _, l := range lineSegments {
-		if len(g.getLineIntersects(l)) > 0 {
+		if len(c.getLineIntersects(l)) > 0 {
 			return true
 		}
 	}
 
 	// Does the polygon contain the circle?
-	if _g.Fill != "transparent" && _g.containsVertex([]Point{g.Center}) {
+	if p.Fill != "transparent" && p.containsVertex([]Point{c.Center}) {
 		return true
 	}
 
 	return false
 }
 
-func (g CircleGeometry) hasCircleOverlap(_g CircleGeometry) bool {
+func (c CircleGeometry) hasCircleOverlap(_c CircleGeometry) bool {
 	// If they are same size, check distance between centers against radii.
-	if g.Radius == _g.Radius {
-		if dist := g.Center.getDist(_g.Center); dist <= float64(g.Radius+_g.Radius) {
+	if c.Radius == _c.Radius {
+		if dist := c.Center.getDist(_c.Center); dist <= float64(c.Radius+_c.Radius) {
 			return true
 		}
 	} else {
 		var smaller, bigger CircleGeometry
-		if _g.Radius < g.Radius {
-			smaller, bigger = _g, g
+		if _c.Radius < c.Radius {
+			smaller, bigger = _c, c
 		} else {
-			smaller, bigger = g, _g
+			smaller, bigger = c, _c
 		}
 
 		dist := smaller.Center.getDist(bigger.Center)
@@ -810,9 +812,9 @@ func (g CircleGeometry) hasCircleOverlap(_g CircleGeometry) bool {
 	return false
 }
 
-func (g CircleGeometry) containsVertex(vertices []Point) bool {
+func (c CircleGeometry) containsVertex(vertices []Point) bool {
 	for _, v := range vertices {
-		if g.Center.getDist(v) <= float64(g.Radius) {
+		if c.Center.getDist(v) <= float64(c.Radius) {
 			return true
 		}
 	}

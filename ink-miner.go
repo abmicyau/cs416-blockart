@@ -113,6 +113,7 @@ type Miner struct {
 	unminedOps                map[string]*OperationRecord
 	unvalidatedOps            map[string]*OperationRecord
 	validatedOps              map[string]*OperationRecord
+	tempOps                   map[string]*OperationRecord
 }
 
 type Block struct {
@@ -165,6 +166,7 @@ func main() {
 	gob.Register(Block{})
 	gob.Register(Operation{})
 	gob.Register(OperationRecord{})
+	gob.Register(errorLib.InvalidBlockHashError(""))
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()
@@ -195,6 +197,7 @@ func (m *Miner) init() {
 	m.unminedOps = make(map[string]*OperationRecord)
 	m.unvalidatedOps = make(map[string]*OperationRecord)
 	m.validatedOps = make(map[string]*OperationRecord)
+	m.tempOps = make(map[string]*OperationRecord)
 	m.inkAccounts[m.pubKeyString] = 0
 	if len(args) <= 1 {
 		logger.Fatalln("Missing keys, please generate with: go run generateKeys.go")
@@ -235,7 +238,17 @@ func (m *Miner) init() {
 }
 
 func (m *Miner) listenRPC() {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
+	addrs, _ := net.InterfaceAddrs()
+	var externalIP string
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				externalIP = ipnet.IP.String()
+			}
+		}
+	}
+	externalIP = externalIP + ":0"
+	tcpAddr, err := net.ResolveTCPAddr("tcp", externalIP)
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
@@ -302,6 +315,7 @@ func (m *Miner) connectToMiners(addrs []net.Addr) {
 		if m.miners[minerAddr.String()] == nil {
 			minerConn, err := rpc.Dial("tcp", minerAddr.String())
 			if err != nil {
+				log.Println(err)
 				delete(m.miners, minerAddr.String())
 			} else {
 				m.miners[minerAddr.String()] = minerConn
@@ -608,7 +622,7 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 
 // Sends block to all connected miners
 // Makes sure that enough miners are connected; if under minimum, it calls for more
-func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) {
+func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) error {
 	m.getMiners() // checks all miners, connects to more if needed
 	request := new(MinerRequest)
 	request.Payload = make([]interface{}, 2)
@@ -619,11 +633,13 @@ func (m *Miner) disseminateToConnectedMiners(block *Block, blockHash string) {
 		isConnected := false
 		minerCon.Call("Miner.PingMiner", "", &isConnected)
 		if isConnected {
-			minerCon.Call("Miner.SendBlock", request, response)
+			err := minerCon.Call("Miner.SendBlock", request, response)
+			checkError(err)
 		} else {
 			delete(m.miners, minerAddr)
 		}
 	}
+	return nil
 }
 
 // Adds a block's hash to its parent's list of child hashes.
@@ -638,17 +654,6 @@ func (m *Miner) addBlockChild(block *Block, hash string) {
 }
 
 func (m *Miner) validateNewShape(s shapelib.Shape) (inkCost uint32, err error) {
-	if s.Stroke == "" {
-		err = errorLib.InvalidShapeFillStrokeError("Shape stroke must be specified")
-		return
-	} else if s.Fill == "" {
-		err = errorLib.InvalidShapeFillStrokeError("Shape fill must be specified")
-		return
-	} else if s.Stroke == "transparent" || s.Fill == "transparent" {
-		err = errorLib.InvalidShapeFillStrokeError("Both fill and stroke cannot be transparent")
-		return
-	}
-
 	canvasSettings := m.settings.CanvasSettings
 	_, geo, err := s.IsValid(canvasSettings.CanvasXMax, canvasSettings.CanvasYMax)
 	if err != nil {
@@ -691,6 +696,14 @@ func (m *Miner) hasOverlappingShape(s shapelib.Shape, geo shapelib.ShapeGeometry
 			return true, hash
 		}
 	}
+	for hash, opRecord := range m.tempOps {
+		_s := opRecord.Op.Shape
+		if _s.Owner == s.Owner {
+			continue
+		} else if _geo, _ := _s.GetGeometry(); _geo.HasOverlap(geo) {
+			return true, hash
+		}
+	}
 	return false, hash
 }
 
@@ -704,9 +717,9 @@ func (m *Miner) blockSuccessfullyMined(block *Block) bool {
 		m.addBlockChild(block, blockHash)
 		logger.Println("Current BlockChainMap: ", m.blockchain)
 		m.longestChainLastBlockHash = blockHash
-		m.applyBlockInk(block)
-		m.moveUnminedToUnvalidated(block)
 		m.disseminateToConnectedMiners(block, blockHash)
+		m.applyBlockInk(block) // should this happen here? or once validateNum comes in to effect?
+		m.moveUnminedToUnvalidated(block)
 		return true
 	} else {
 		return false
@@ -778,12 +791,13 @@ func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) (err 
 	if validNonce && validSignature {
 		delete(m.nonces, nonce)
 		response.Error = nil
-		response.Payload = make([]interface{}, 2)
+		response.Payload = make([]interface{}, 3)
 		token := getRand256()
 		m.tokens[token] = true
 
 		response.Payload[0] = token
-		response.Payload[1] = m.settings.CanvasSettings
+		response.Payload[1] = m.settings.CanvasSettings.CanvasXMax
+		response.Payload[2] = m.settings.CanvasSettings.CanvasYMax
 	} else {
 		response.Error = new(errorLib.InvalidSignatureError)
 	}
@@ -825,15 +839,17 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	block := request.Payload[0].(Block)
 	blockHash := request.Payload[1].(string)
 
-	// TODO:
-	//		Validate Block
-	isHashValid := m.validateBlock(&block, blockHash)
-	m.moveUnminedToUnvalidated(&block) // need to remove unmined ops to stop mining mined ops
+	err := m.validateBlock(&block, blockHash)
+	if err != nil {
+		return err
+	}
+
+ 	m.moveUnminedToUnvalidated(&block)
 	//		If Valid, add to block chain
 	//		Else return invalid
 
 	// If new block, disseminate
-	if _, exists := m.blockchain[blockHash]; !exists && isHashValid {
+	if _, exists := m.blockchain[blockHash]; !exists {
 		m.blockchain[blockHash] = &block
 		m.addBlockChild(&block, blockHash)
 		// compute longest chain
@@ -848,9 +864,11 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 			} else {
 				m.changeBlockchainHead(m.longestChainLastBlockHash, blockHash)
 			}
+		} else if newChainLength == oldChainLength {
+			if blockHash > m.longestChainLastBlockHash {
+				m.changeBlockchainHead(m.longestChainLastBlockHash, blockHash)
+			}
 		}
-		// TODO: else, if equal, pick the largest hash = random
-		// TODO: Else, reply back with our longest chain to sync up with sender
 
 		//		Disseminate Block to connected Miners
 		m.disseminateToConnectedMiners(&block, blockHash)
@@ -992,7 +1010,6 @@ func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) er
 		response.Error = errorLib.InvalidBlockHashError(hash)
 		return nil
 	}
-
 	response.Error = nil
 	response.Payload = make([]interface{}, 1)
 	response.Payload[0] = children
@@ -1009,7 +1026,7 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 	}
 
 	validateNum := request.Payload[0].(uint8)
-	shapeType := request.Payload[1].(shapelib.ShapeType)
+	shapeType := shapelib.ShapeType(request.Payload[1].(int))
 	shapeSvgString := request.Payload[2].(string)
 	fill := strings.Trim(request.Payload[3].(string), " ")
 	stroke := strings.Trim(request.Payload[4].(string), " ")
@@ -1061,11 +1078,13 @@ func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (e
 		return
 	}
 
+	delShape := opRecord.Op.Shape
+	delShape.Fill, delShape.Stroke = "white", "white"
+
 	op := Operation{
-		Type: REMOVE,
-		// TODO: We need to set the fill to white here to 'erase' the shape
-		Shape:       opRecord.Op.Shape,
-		InkCost:     opRecord.Op.InkCost,
+		Type:        REMOVE,
+		Shape:       delShape,
+		InkCost:     0, // Set to 0, to further identify delete
 		ValidateNum: validateNum,
 		TimeStamp:   time.Now().UnixNano()}
 
@@ -1163,16 +1182,45 @@ func (m *Miner) lengthLongestChain(blockhash string) int {
 // Asserts the following about a given block and blockHash:
 // - blockhash matches POW difficulty and nonce is correct
 // - the given block points to a valid hash in the blockchain
-// TODO: operation validations
-func (m *Miner) validateBlock(block *Block, blockHash string) bool {
+func (m *Miner) validateBlock(block *Block, blockHash string) error {
 	encodedBlock, err := json.Marshal(*block)
 	checkError(err)
 	newBlockHash := md5Hash(encodedBlock)
-	if m.hashMatchesPOWDifficulty(newBlockHash) && blockHash == newBlockHash && m.blockchain[block.PrevHash] != nil {
-		logger.Println("Received Block hashes to correct hash")
-		return true
+	if m.hashMatchesPOWDifficulty(newBlockHash) && m.validateOpIntegrity(block) && blockHash == newBlockHash && m.blockchain[block.PrevHash] != nil {
+		logger.Println("Received Block has been validated")
+		return nil
 	}
-	return false
+	logger.Println("PROBLEM WITH VALIDATION")
+	return errorLib.ValidationError(blockHash)
+}
+
+// Helper function to assert that each op in a block is signed properly,
+// shape is valid, and the public key has enough ink.
+func (m *Miner) validateOpIntegrity(block *Block) bool {
+	for _, opRecord := range block.Records {
+		if m.validateSignature(opRecord) {
+			// add op to tempOps to check for shape harmony (yes, harmony :))
+			m.tempOps[opRecord.OpSig] = &opRecord
+			_, err := m.validateNewShape(opRecord.Op.Shape)
+			if err != nil {
+				return false
+			}
+		} else {
+			return false
+		}
+	}
+	// cleanup all tempOps
+	for k := range m.tempOps {
+		delete(m.tempOps, k)
+	}
+	return true
+}
+
+func (m *Miner) validateSignature(opRecord OperationRecord) bool {
+	data, _ := json.Marshal(opRecord.Op)
+	sig := new(Signature)
+	json.Unmarshal([]byte(opRecord.OpSig), &sig)
+	return ecdsa.Verify(&m.pubKey, data, sig.R, sig.S)
 }
 
 // Asserts the following about a given OperationRecord:

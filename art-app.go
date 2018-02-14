@@ -14,20 +14,18 @@ package main
 import "./blockartlib"
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"fmt"
 	"os"
 )
 
 func main() {
-	minerAddr := "127.0.0.1:58288"
 	// TODO: use crypto/ecdsa to read pub/priv keys from a file argument.
 	privKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if checkError(err) != nil {
 		return
 	}
+	
+	minerAddr := "127.0.0.1:8080"
 
 	// Open a canvas.
 	canvas, _, err := blockartlib.OpenCanvas(minerAddr, *privKey)
@@ -37,14 +35,14 @@ func main() {
 
 	_, _ = canvas.GetShapes("")
 
- 	validateNum := 2
+	// validateNum := 2
 
 	// Add a line.
-	shapeHash, blockHash, ink, err := canvas.AddShape(uint8(validateNum), blockartlib.PATH, "M 0 0 L 0 5", "transparent", "red")
-	if checkError(err) != nil {
-		return
-	}
-	fmt.Println(shapeHash, blockHash, ink)
+	// shapeHash, blockHash, ink, err := canvas.AddShape(uint8(validateNum), blockartlib.PATH, "M 0 0 L 0 5", "transparent", "red")
+	// if checkError(err) != nil {
+	// 	return
+	// }
+	// fmt.Println(shapeHash, blockHash, ink)
 
 	// // Add another line.
 	// shapeHash2, blockHash2, ink2, err := canvas.AddShape(validateNum, blockartlib.PATH, "M 0 0 L 5 0", "transparent", "blue")

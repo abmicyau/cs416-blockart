@@ -39,6 +39,9 @@ func main() {
 	}
 
 	app := new(App)
+	app.shapes = make(map[string]string)
+	app.blocks = make(map[string]string)
+
 	minerAddr := args[1]
 	app.canvas, app.settings, err = blockartlib.OpenCanvas(minerAddr, *privKey)
 	if checkError(err) != nil {
@@ -234,8 +237,11 @@ func (app *App) GetGenesisBlock(args []string) {
 		return
 	}
 
+	blockDoubleHash := md5Hash([]byte(blockHash))
+	app.blocks[blockDoubleHash] = blockHash
+
 	fmt.Println(" GetGenesisBlock: OK!")
-	fmt.Println(" GetGenesisBlock: blockHash = " + blockHash)
+	fmt.Println(" GetGenesisBlock: blockHash = " + blockDoubleHash)
 }
 
 func (app *App) GetChildren(args []string) {

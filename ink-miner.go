@@ -165,6 +165,7 @@ func main() {
 	gob.Register(Block{})
 	gob.Register(Operation{})
 	gob.Register(OperationRecord{})
+	gob.Register(errorLib.InvalidBlockHashError(""))
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()
@@ -711,12 +712,13 @@ func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) (err 
 	if validNonce && validSignature {
 		delete(m.nonces, nonce)
 		response.Error = nil
-		response.Payload = make([]interface{}, 2)
+		response.Payload = make([]interface{}, 3)
 		token := getRand256()
 		m.tokens[token] = true
 
 		response.Payload[0] = token
-		response.Payload[1] = m.settings.CanvasSettings
+		response.Payload[1] = m.settings.CanvasSettings.CanvasXMax
+		response.Payload[2] = m.settings.CanvasSettings.CanvasYMax
 	} else {
 		response.Error = new(errorLib.InvalidSignatureError)
 	}
@@ -925,7 +927,6 @@ func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) er
 		response.Error = errorLib.InvalidBlockHashError(hash)
 		return nil
 	}
-
 	response.Error = nil
 	response.Payload = make([]interface{}, 1)
 	response.Payload[0] = children

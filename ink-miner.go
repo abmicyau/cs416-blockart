@@ -167,6 +167,17 @@ func main() {
 	gob.Register(Operation{})
 	gob.Register(OperationRecord{})
 	gob.Register(errorLib.InvalidBlockHashError(""))
+	gob.Register(errorLib.DisconnectedError(""))
+	gob.Register(errorLib.InvalidShapeSvgStringError(""))
+	gob.Register(errorLib.ShapeSvgStringTooLongError(""))
+	gob.Register(errorLib.InvalidShapeHashError(""))
+	gob.Register(errorLib.ShapeOwnerError(""))
+	gob.Register(errorLib.OutOfBoundsError{})
+	gob.Register(errorLib.ShapeOverlapError(""))
+	gob.Register(errorLib.InvalidShapeFillStrokeError(""))
+	gob.Register(errorLib.InvalidSignatureError{})
+	gob.Register(errorLib.InvalidTokenError(""))
+	gob.Register(errorLib.ValidationError(""))
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()
@@ -847,7 +858,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 		return err
 	}
 
- 	m.moveUnminedToUnvalidated(&block)
+	m.moveUnminedToUnvalidated(&block)
 	//		If Valid, add to block chain
 	//		Else return invalid
 

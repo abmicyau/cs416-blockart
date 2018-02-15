@@ -134,13 +134,19 @@ func BlocksHandler(w http.ResponseWriter, r *http.Request) {
 	LongestChainJson.Blocks = make([]BlockJson, lengthOfChain)
 
 	for iBlock, blockHash := range blockHashes {
+
 		shapeHashes, _ := canvasGlobal.GetShapes(blockHash)
 
 		LongestChainJson.Blocks[iBlock].BlockHash = blockHash
 		LongestChainJson.Blocks[iBlock].Shapes = make([]string, len(shapeHashes))
 
 		for iShape, shapeHash := range shapeHashes {
+
 			svgString, _ := canvasGlobal.GetSvgString(shapeHash)
+			if iBlock == 2 {
+				log.Println("Block 2's hash:", shapeHash)
+				log.Println("Block 2", svgString)
+			}
 			if len(svgString) > 0 {
 				LongestChainJson.Blocks[iBlock].Shapes[iShape] = svgString
 			}

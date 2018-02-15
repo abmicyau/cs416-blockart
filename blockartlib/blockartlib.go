@@ -240,6 +240,17 @@ func (e InvalidBlockHashError) Error() string {
 func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, setting CanvasSettings, err error) {
 	// Greet the miner and retrieve a nonce
 	gob.Register(errorLib.InvalidBlockHashError(""))
+	gob.Register(errorLib.DisconnectedError(""))
+	gob.Register(errorLib.InvalidShapeSvgStringError(""))
+	gob.Register(errorLib.ShapeSvgStringTooLongError(""))
+	gob.Register(errorLib.InvalidShapeHashError(""))
+	gob.Register(errorLib.ShapeOwnerError(""))
+	gob.Register(errorLib.OutOfBoundsError{})
+	gob.Register(errorLib.ShapeOverlapError(""))
+	gob.Register(errorLib.InvalidShapeFillStrokeError(""))
+	gob.Register(errorLib.InvalidSignatureError{})
+	gob.Register(errorLib.InvalidTokenError(""))
+	gob.Register(errorLib.ValidationError(""))
 
 	miner, err := rpc.Dial("tcp", minerAddr)
 	if checkError(err) != nil {
@@ -351,7 +362,6 @@ func (c CanvasInstance) GetSvgString(shapeHash string) (svgString string, err er
 	request.Payload = make([]interface{}, 1)
 	request.Payload[0] = shapeHash
 	response := new(MinerResponse)
-
 	err = c.Miner.Call("Miner.GetSvgString", request, response)
 	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
 		err = DisconnectedError(c.MinerAddr)

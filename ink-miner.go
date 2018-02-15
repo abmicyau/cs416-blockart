@@ -1234,7 +1234,7 @@ func (m *Miner) validateSignature(opRecord OperationRecord) bool {
 	data, _ := json.Marshal(opRecord.Op)
 	sig := new(Signature)
 	json.Unmarshal([]byte(opRecord.OpSig), &sig)
-	return ecdsa.Verify(&m.pubKey, data, sig.R, sig.S)
+	return ecdsa.Verify(decodeStringPubKey(opRecord.PubKeyString), data, sig.R, sig.S)
 }
 
 // Asserts the following about a given OperationRecord:

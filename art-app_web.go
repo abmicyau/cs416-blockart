@@ -22,6 +22,7 @@ import (
 	"os"
 
 	"./blockartlib"
+	"github.com/alfaeddie/proj1_b0z8_b4n0b_i5n8_m9r8/shapelib"
 )
 
 type CanvasSets struct {
@@ -29,9 +30,17 @@ type CanvasSets struct {
 	Y uint32 `json:"Y"`
 }
 
+type BlockShape struct {
+	Type      string `json: "Type"`
+	SvgString string `json: "SvgString"`
+	X         int64  `json: "X"`
+	Y         int64  `json: "Y"`
+	Radius    int64  `json: "Radius"`
+}
+
 type BlockJson struct {
-	BlockHash string   `json: "BlockHash"`
-	Shapes    []string `json: Shapes`
+	BlockHash string       `json: "BlockHash"`
+	Shapes    []BlockShape `json: Shapes`
 }
 
 type LongestChainJson struct {
@@ -138,7 +147,7 @@ func BlocksHandler(w http.ResponseWriter, r *http.Request) {
 		shapeHashes, _ := canvasGlobal.GetShapes(blockHash)
 
 		LongestChainJson.Blocks[iBlock].BlockHash = blockHash
-		LongestChainJson.Blocks[iBlock].Shapes = make([]string, len(shapeHashes))
+		LongestChainJson.Blocks[iBlock].Shapes = make([]BlockShape, len(shapeHashes))
 
 		for iShape, shapeHash := range shapeHashes {
 
@@ -148,7 +157,21 @@ func BlocksHandler(w http.ResponseWriter, r *http.Request) {
 				log.Println("Block 2", svgString)
 			}
 			if len(svgString) > 0 {
-				LongestChainJson.Blocks[iBlock].Shapes[iShape] = svgString
+				var blockShape BlockShape
+
+				circle, err := shapelib.GetCircleFromSvg(svgString)
+				if err != nil {
+					blockShape.Type = "PATH"
+					blockShape.SvgString = svgString
+				} else {
+					blockShape.Type = "CIRCLE"
+					blockShape.SvgString = svgString
+					blockShape.X = circle.Center.X
+					blockShape.Y = circle.Center.Y
+					blockShape.Radius = circle.Radius
+				}
+
+				LongestChainJson.Blocks[iBlock].Shapes[iShape] = blockShape
 			}
 		}
 		// Testing path

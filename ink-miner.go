@@ -869,7 +869,7 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	//		Else return invalid
 
 	// If new block, disseminate
-	if m.blockchain.Get(blockHash) != nil {
+	if m.blockchain.Get(blockHash) == nil {
 		m.blockchain.Set(blockHash, &block)
 		m.addBlockChild(&block, blockHash)
 		// compute longest chain

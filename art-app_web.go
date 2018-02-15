@@ -31,7 +31,7 @@ type CanvasSets struct {
 
 type BlockJson struct {
 	BlockHash string   `json: "BlockHash"`
-	Shapes    []string `json: "Shapes"`
+	Shapes    []string `json: Shapes`
 }
 
 type LongestChainJson struct {
@@ -138,7 +138,7 @@ func BlocksHandler(w http.ResponseWriter, r *http.Request) {
 		shapeHashes, _ := canvasGlobal.GetShapes(blockHash)
 
 		LongestChainJson.Blocks[iBlock].BlockHash = blockHash
-		LongestChainJson.Blocks[iBlock].Shapes = make([]BlockShape, len(shapeHashes))
+		LongestChainJson.Blocks[iBlock].Shapes = make([]string, len(shapeHashes))
 
 		for iShape, shapeHash := range shapeHashes {
 

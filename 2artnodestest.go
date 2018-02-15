@@ -30,7 +30,7 @@ func main() {
   logger := NewLogger("Artnodes")
 	args := os.Args[1:]
 	if len(args) < 3 {
-		fmt.Println("Usage: go run art-app.go [privKeyA] [minerA ip:port] [privKeyB] [minerB ip:port]")
+		fmt.Println("Usage: go run art-app.go [privKeyA] [privKeyB] [minerA ip:port] [minerB ip:port]")
 		return
 	}
 

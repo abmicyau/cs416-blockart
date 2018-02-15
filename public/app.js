@@ -1,7 +1,6 @@
 var app = new Vue({
     el: '#app',
     data: {
-        greeting: 'Welcome to your Vue.js app!',
         CanvasX: 0,
         CanvasY: 0,
         BlockChain: [],

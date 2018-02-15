@@ -6,7 +6,6 @@ go run art-app.go [privKey] [miner ip:port]
 package main
 
 import (
-	"crypto/md5"
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
@@ -219,11 +218,4 @@ func checkError(err error) error {
 		return err
 	}
 	return nil
-}
-
-func md5Hash(data []byte) string {
-	h := md5.New()
-	h.Write(data)
-	str := hex.EncodeToString(h.Sum(nil))
-	return str
 }

@@ -726,6 +726,10 @@ func (m *Miner) blockSuccessfullyMined(block *Block) bool {
 	checkError(err)
 	blockHash := md5Hash(encodedBlock)
 	if m.hashMatchesPOWDifficulty(blockHash) {
+		err = m.validateBlock(block, blockHash)
+		if err != nil {
+			return false
+		}
 		logger.Println("Found a new Block!: ", block, blockHash)
 		m.blockchain[blockHash] = block
 		m.addBlockChild(block, blockHash)
@@ -1217,6 +1221,7 @@ func (m *Miner) validateOpIntegrity(block *Block) bool {
 			m.tempOps[opRecord.OpSig] = &opRecord
 			_, err := m.validateNewShape(opRecord.Op.Shape)
 			if err != nil {
+				logger.Println(err)
 				return false
 			}
 		} else {

@@ -24,6 +24,7 @@ import (
 	"net/rpc"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"./errorlib"
@@ -99,7 +100,7 @@ type Miner struct {
 	serverAddr                string
 	serverConn                *rpc.Client
 	miners                    map[string]*rpc.Client
-	blockchain                map[string]*Block
+	blockchain                *BlockchainMap
 	blockChildren             map[string][]string
 	longestChainLastBlockHash string
 	pubKey                    ecdsa.PublicKey
@@ -146,6 +147,11 @@ type Signature struct {
 type MinerInfo struct {
 	Address net.Addr
 	Key     ecdsa.PublicKey
+}
+
+type BlockchainMap struct {
+	Blockchain map[string]*Block
+	Lock sync.RWMutex
 }
 
 // </TYPE DECLARATIONS>
@@ -199,7 +205,7 @@ func main() {
 func (m *Miner) init() {
 	args := os.Args[1:]
 	m.serverAddr = args[0]
-	m.blockchain = make(map[string]*Block)
+	m.blockchain = &BlockchainMap{make(map[string]*Block), sync.RWMutex{}}
 	m.blockChildren = make(map[string][]string)
 	m.nonces = make(map[string]bool)
 	m.tokens = make(map[string]bool)
@@ -357,7 +363,7 @@ func (m *Miner) getLongestChain() {
 	var currLongestChain []Block
 
 	for _, minerCon := range m.miners {
-		m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKeyString, 0}
+		m.blockchain.Set(m.settings.GenesisBlockHash, &Block{0, "", []OperationRecord{}, m.pubKeyString, 0})
 		singleResponse := new(MinerResponse)
 		minerCon.Call("Miner.GetBlockChain", request, singleResponse)
 		if len(singleResponse.Payload) > 1 {
@@ -400,7 +406,7 @@ func (m *Miner) getLongestChain() {
 				}
 				// else op is valid, apply the block to simulate
 				m.applyBlockInk(&block)
-				m.blockchain[myHash] = &block
+				m.blockchain.Set(myHash, &block)
 			}
 			// Chain is not valid all the way through
 			if !isBlockValid {
@@ -413,7 +419,7 @@ func (m *Miner) getLongestChain() {
 			// Revert states
 			m.validatedOps = make(map[string]*OperationRecord)
 			m.inkAccounts = make(map[string]uint32)
-			m.blockchain = make(map[string]*Block)
+			m.blockchain = &BlockchainMap{make(map[string]*Block), sync.RWMutex{}}
 
 			// Set tracker if we have a new VALID longestChain & hash
 			if len(currLongestHash) < 1 {
@@ -435,7 +441,7 @@ func (m *Miner) getLongestChain() {
 			//	-is that the chain was validated earlier ^, just need to apply the blocks and ops now
 			block := &longestBlockChain[i]
 			m.applyBlockInk(block)
-			m.blockchain[currHash] = block
+			m.blockchain.Set(currHash, block)
 			m.addBlockChild(block, currHash)
 			for _, opRec := range block.Records {
 				if m.isOpValidateNumFulfilled(longestBlockHash, &opRec, block) {
@@ -447,9 +453,9 @@ func (m *Miner) getLongestChain() {
 			currHash = longestBlockChain[i].PrevHash
 		}
 		m.longestChainLastBlockHash = longestBlockHash
-		logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.longestChainLastBlockHash].BlockNo+1)
+		logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain.Get(m.longestChainLastBlockHash).BlockNo+1)
 	}
-	m.blockchain[m.settings.GenesisBlockHash] = &Block{0, "", []OperationRecord{}, m.pubKeyString, 0}
+	m.blockchain.Set(m.settings.GenesisBlockHash, &Block{0, "", []OperationRecord{}, m.pubKeyString, 0})
 
 }
 
@@ -465,7 +471,7 @@ func (m *Miner) mineBlock() {
 		blockNo = 1
 	} else {
 		prevHash = m.longestChainLastBlockHash
-		blockNo = m.blockchain[prevHash].BlockNo + 1
+		blockNo = m.blockchain.Get(prevHash).BlockNo + 1
 	}
 	for {
 		select {
@@ -524,7 +530,7 @@ func (m *Miner) applyBlockInk(block *Block) {
 }
 
 func (m *Miner) isOpValidateNumFulfilled(headBlockHash string, opRecord *OperationRecord, opBlock *Block) bool {
-	headBlockNo := m.blockchain[headBlockHash].BlockNo
+	headBlockNo := m.blockchain.Get(headBlockHash).BlockNo
 	blockNo := opBlock.BlockNo
 	return headBlockNo-blockNo >= uint32(opRecord.Op.ValidateNum)
 }
@@ -553,8 +559,8 @@ func (m *Miner) isOpValidateNumFulfilled(headBlockHash string, opRecord *Operati
 func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 	// newBlock and oldBlock are "current" block pointers in the new and
 	// old blockchain, respectively, as we traverse backwards
-	newBlock := m.blockchain[newBlockHash]
-	oldBlock := m.blockchain[oldBlockHash]
+	newBlock := m.blockchain.Get(newBlockHash)
+	oldBlock := m.blockchain.Get(oldBlockHash)
 	newBranch := []*Block{}
 	oldBranch := []*Block{}
 	newBranchOps := make(map[string]bool)
@@ -566,7 +572,7 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 		for _, opRecord := range newBlock.Records {
 			newBranchOps[opRecord.OpSig] = true
 		}
-		newBlock = m.blockchain[newBlock.PrevHash]
+		newBlock = m.blockchain.Get(newBlock.PrevHash)
 	}
 
 	// [Branch Switch Only]
@@ -579,8 +585,8 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 			newBranchOps[opRecord.OpSig] = true
 		}
 		oldBranch = append(oldBranch, oldBlock)
-		newBlock = m.blockchain[newBlock.PrevHash]
-		oldBlock = m.blockchain[oldBlock.PrevHash]
+		newBlock = m.blockchain.Get(newBlock.PrevHash)
+		oldBlock = m.blockchain.Get(oldBlock.PrevHash)
 	}
 
 	// [Branch Switch Only]
@@ -727,7 +733,7 @@ func (m *Miner) blockSuccessfullyMined(block *Block) bool {
 	blockHash := md5Hash(encodedBlock)
 	if m.hashMatchesPOWDifficulty(blockHash) {
 		logger.Println("Found a new Block!: ", block, blockHash)
-		m.blockchain[blockHash] = block
+		m.blockchain.Set(blockHash, block)
 		m.addBlockChild(block, blockHash)
 		logger.Println("Current BlockChainMap: ", m.blockchain)
 		m.longestChainLastBlockHash = blockHash
@@ -863,8 +869,8 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 	//		Else return invalid
 
 	// If new block, disseminate
-	if _, exists := m.blockchain[blockHash]; !exists {
-		m.blockchain[blockHash] = &block
+	if m.blockchain.Get(blockHash) != nil {
+		m.blockchain.Set(blockHash, &block)
 		m.addBlockChild(&block, blockHash)
 		// compute longest chain
 		newChainLength := m.lengthLongestChain(blockHash)
@@ -933,13 +939,13 @@ func (m *Miner) GetBlockChain(request *MinerRequest, response *MinerResponse) er
 		return nil
 	}
 
-	longestChainLength := m.blockchain[m.longestChainLastBlockHash].BlockNo
+	longestChainLength := m.blockchain.Get(m.longestChainLastBlockHash).BlockNo
 	longestChain := make([]Block, longestChainLength)
 
 	var currhash = m.longestChainLastBlockHash
 	for i := 0; i < int(longestChainLength); i++ {
-		longestChain[i] = *m.blockchain[currhash]
-		currhash = m.blockchain[currhash].PrevHash
+		longestChain[i] = *m.blockchain.Get(currhash)
+		currhash = m.blockchain.Get(currhash).PrevHash
 	}
 	response.Error = nil
 	response.Payload = make([]interface{}, 2)
@@ -992,7 +998,7 @@ func (m *Miner) GetShapes(request *ArtnodeRequest, response *MinerResponse) erro
 	}
 
 	hash := request.Payload[0].(string)
-	block := m.blockchain[hash]
+	block := m.blockchain.Get(hash)
 	if block == nil {
 		response.Error = errorLib.InvalidBlockHashError(hash)
 		return nil
@@ -1179,8 +1185,8 @@ func (m *Miner) lengthLongestChain(blockhash string) int {
 	var currhash = blockhash
 	for {
 		length++
-		prevBlockHash := m.blockchain[currhash].PrevHash
-		if _, exists := m.blockchain[prevBlockHash]; exists {
+		prevBlockHash := m.blockchain.Get(currhash).PrevHash
+		if m.blockchain.Get(prevBlockHash) != nil {
 			currhash = prevBlockHash
 			if currhash == m.settings.GenesisBlockHash {
 				return length
@@ -1200,7 +1206,7 @@ func (m *Miner) validateBlock(block *Block, blockHash string) error {
 	encodedBlock, err := json.Marshal(*block)
 	checkError(err)
 	newBlockHash := md5Hash(encodedBlock)
-	if m.hashMatchesPOWDifficulty(newBlockHash) && m.validateOpIntegrity(block) && blockHash == newBlockHash && m.blockchain[block.PrevHash] != nil {
+	if m.hashMatchesPOWDifficulty(newBlockHash) && m.validateOpIntegrity(block) && blockHash == newBlockHash && m.blockchain.Get(block.PrevHash) != nil {
 		logger.Println("Received Block has been validated")
 		return nil
 	}
@@ -1245,7 +1251,7 @@ func (m *Miner) validateOp(opRec OperationRecord) bool {
 
 func (m *Miner) getOpBlockHash(opSig string) (string, error) {
 	hash := m.longestChainLastBlockHash
-	block := m.blockchain[hash]
+	block := m.blockchain.Get(hash)
 	blockNo := block.BlockNo
 	for blockNo > 1 {
 		ops := block.Records
@@ -1256,7 +1262,7 @@ func (m *Miner) getOpBlockHash(opSig string) (string, error) {
 		}
 
 		hash = block.PrevHash
-		block = m.blockchain[hash]
+		block = m.blockchain.Get(hash)
 		blockNo = block.BlockNo
 	}
 
@@ -1313,6 +1319,19 @@ func md5Hash(data []byte) string {
 	h.Write(data)
 	str := hex.EncodeToString(h.Sum(nil))
 	return str
+}
+
+// BlockchainMap lock helpers
+
+func (b *BlockchainMap) Set(key string, value *Block) {
+    b.Lock.Lock()
+    b.Blockchain[key] = value
+    b.Lock.Unlock()
+}
+func (b *BlockchainMap) Get(key string) *Block {
+    b.Lock.RLock()
+    defer b.Lock.RUnlock()
+    return b.Blockchain[key]
 }
 
 // UNCOMMENT to test op mining - can remove once ops begin to flow

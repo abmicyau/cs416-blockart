@@ -1184,14 +1184,5 @@ func solveCircleForX(y float64, xC float64, yC float64, r float64, onLineSegment
 	return
 }
 
-func GetCircleFromSvg(svgString string) (geo CircleGeometry, err error) {
-	shape := Shape{
-		ShapeType:      CIRCLE,
-		ShapeSvgString: svgString}
-
-	geo, err = shape.getCircleGeometry()
-	return
-}
-
 // </FUNCTIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////

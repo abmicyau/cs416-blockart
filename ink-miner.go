@@ -95,27 +95,27 @@ type MinerNetSettings struct {
 const TIME_BUFFER uint32 = 500
 
 type Miner struct {
-	sync.RWMutex
-	logger                    *log.Logger
-	localAddr                 net.Addr
-	serverAddr                string
-	serverConn                *rpc.Client
-	miners                    map[string]*rpc.Client
-	blockchain                map[string]*Block
-	blockchainHead            string
-	blockChildren             map[string][]string
-	pubKey                    ecdsa.PublicKey
-	privKey                   ecdsa.PrivateKey
-	pubKeyString              string
-	inkAccounts               map[string]uint32
-	settings                  *MinerNetSettings
-	nonces                    map[string]bool
-	tokens                    map[string]bool
-	newLongestChain           chan bool
-	unminedOps                map[string]*OperationRecord
-	unvalidatedOps            map[string]*OperationRecord
-	validatedOps              map[string]*OperationRecord
-	tempOps                   map[string]*OperationRecord
+	lock            *sync.RWMutex
+	logger          *log.Logger
+	localAddr       net.Addr
+	serverAddr      string
+	serverConn      *rpc.Client
+	miners          map[string]*rpc.Client
+	blockchain      map[string]*Block
+	blockchainHead  string
+	blockChildren   map[string][]string
+	pubKey          ecdsa.PublicKey
+	privKey         ecdsa.PrivateKey
+	pubKeyString    string
+	inkAccounts     map[string]uint32
+	settings        *MinerNetSettings
+	nonces          map[string]bool
+	tokens          map[string]bool
+	newLongestChain chan bool
+	unminedOps      map[string]*OperationRecord
+	unvalidatedOps  map[string]*OperationRecord
+	validatedOps    map[string]*OperationRecord
+	tempOps         map[string]*OperationRecord
 }
 
 type Block struct {
@@ -205,26 +205,18 @@ func (m *Miner) init() {
 	m.nonces = make(map[string]bool)
 	m.tokens = make(map[string]bool)
 	m.miners = make(map[string]*rpc.Client)
+	m.lock = &sync.RWMutex{}
 	if len(args) <= 1 {
 		logger.Fatalln("Missing keys, please generate with: go run generateKeys.go")
-		// Can uncomment for lazy generate, just uncomment the bottom chunk
-		// priv := generateNewKeys()
-		// m.privKey = priv
-		// m.pubKey = priv.PublicKey
 	}
-	// Proper Key Generate
+
 	privBytes, _ := hex.DecodeString(args[2])
-	//pubBytes, _ := hex.DecodeString(args[2])
 	privKey, err := x509.ParseECPrivateKey(privBytes)
 	if checkError(err) != nil {
 		log.Fatalln("Error with Private Key")
 	}
 
 	pubKey := decodeStringPubKey(args[1])
-	// pubKey, err := x509.ParsePKIXPublicKey(pubBytes)
-	// if checkError(err) != nil {
-	// 	log.Fatalln("Error with Public Key")
-	// }
 
 	// Verify if keys are correct
 	data := []byte("Hello World")
@@ -238,7 +230,6 @@ func (m *Miner) init() {
 	m.privKey = *privKey
 	m.pubKey = *pubKey
 	m.pubKeyString = args[1]
-	// End of Proper Key Generation
 
 	m.newLongestChain = make(chan bool)
 }
@@ -347,8 +338,8 @@ func (m *Miner) connectToMiners(addrs []net.Addr) {
 // The new miner will then apply the blocks again and start mining from the end of that chain
 
 func (m *Miner) initBlockchain() {
-	m.Lock()
-	defer m.Unlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	request := new(MinerRequest)
 	var longestChain []Block
@@ -392,7 +383,7 @@ func (m *Miner) initBlockchain() {
 	}
 
 	if len(longestChain) > 0 {
-		for i := len(longestChain) -1; i >= 0; i-- {
+		for i := len(longestChain) - 1; i >= 0; i-- {
 			block := &longestChain[i]
 			m.addBlock(block)
 			m.applyBlock(block)
@@ -418,21 +409,21 @@ func (m *Miner) initBlockchainCache() {
 // Creates a block and block hash that has a suffix of nHashZeroes
 // If successful, block is appended to the longestChainLastBlockHashin the blockchain map
 func (m *Miner) mineBlock() {
-	m.RLock()
+	m.lock.Lock()
 	var nonce uint32 = 0
 	prevHash := m.blockchainHead
 	blockNo := m.blockchain[prevHash].BlockNo + 1
-	m.RUnlock()
+	m.lock.Unlock()
 
 	for {
 		select {
 		case <-m.newLongestChain:
-			m.RLock()
+			m.lock.Lock()
 			logger.Println("Got a new longest chain, switching to: ", m.blockchainHead)
-			m.RUnlock()
+			m.lock.Unlock()
 			return
 		default:
-			m.Lock()
+			m.lock.Lock()
 			var block Block
 			// Will create a opBlock or noOpBlock depending upon whether unminedOps are waiting to be mined
 			if len(m.unminedOps) > 0 {
@@ -445,12 +436,12 @@ func (m *Miner) mineBlock() {
 				block = Block{blockNo, prevHash, nil, m.pubKeyString, nonce}
 			}
 			if m.blockSuccessfullyMined(&block) {
-				m.Unlock()
+				m.lock.Unlock()
 				return
 			} else {
 				nonce++
 			}
-			m.Unlock()
+			m.lock.Unlock()
 		}
 	}
 }
@@ -530,7 +521,7 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 	// Apply the blocks in the new branch. NOTE THE ORDER IN WHICH THIS IS DONE.
 	// Must be oldest -> newest!
 	// If this is done in the correct order, it will also update the blockchainHead
-	for i := len(newBranch)-1; i >= 0; i-- {
+	for i := len(newBranch) - 1; i >= 0; i-- {
 		m.applyBlock(newBranch[i])
 	}
 
@@ -549,8 +540,7 @@ func (m *Miner) disseminateToConnectedMiners(block *Block) error {
 		isConnected := false
 		minerCon.Call("Miner.PingMiner", "", &isConnected)
 		if isConnected {
-			err := minerCon.Call("Miner.SendBlock", request, response)
-			checkError(err)
+			go minerCon.Call("Miner.SendBlock", request, response)
 		} else {
 			delete(m.miners, minerAddr)
 		}
@@ -727,7 +717,7 @@ func (m *Miner) disseminateOpToConnectedMiners(opRec *OperationRecord) {
 		isConnected := false
 		minerCon.Call("Miner.PingMiner", "", &isConnected)
 		if isConnected {
-			minerCon.Call("Miner.SendOp", request, response)
+			go minerCon.Call("Miner.SendOp", request, response)
 		} else {
 			delete(m.miners, minerAddr)
 		}
@@ -743,8 +733,8 @@ func (m *Miner) disseminateOpToConnectedMiners(opRec *OperationRecord) {
 // <RPC METHODS>
 
 func (m *Miner) Hello(_ string, nonce *string) error {
-	m.Lock()
-	defer m.Unlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	*nonce = getRand256()
 	m.nonces[*nonce] = true
@@ -754,8 +744,8 @@ func (m *Miner) Hello(_ string, nonce *string) error {
 // Once a token is successfully retrieved, that nonce can no longer be used
 //
 func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) (err error) {
-	m.Lock()
-	defer m.Unlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	nonce := request.Payload[0].(string)
 	r := new(big.Int)
@@ -795,8 +785,8 @@ func (m *Miner) GetToken(request *ArtnodeRequest, response *MinerResponse) (err 
 // app could get the hash of an unvalidated operation).
 //
 func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) error {
-	m.RLock()
-	defer m.RUnlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	token := request.Token
 	_, validToken := m.tokens[token]
@@ -820,8 +810,8 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
 }
 
 func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error {
-	m.Lock()
-	defer m.Unlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	block := request.Payload[0].(Block)
 	blockHash := hashBlock(&block)
@@ -863,8 +853,8 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 }
 
 func (m *Miner) SendOp(request *MinerRequest, response *MinerResponse) error {
-	m.Lock()
-	defer m.Unlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	opRec := request.Payload[0].(OperationRecord)
 	logger.Println("Received Op: ", opRec.OpSig)
@@ -891,8 +881,8 @@ func (m *Miner) PingMiner(payload string, reply *bool) error {
 }
 
 func (m *Miner) BidirectionalSetup(request *MinerRequest, response *MinerResponse) error {
-	m.Lock()
-	defer m.Unlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	minerAddr := request.Payload[0].(string)
 	minerConn, err := rpc.Dial("tcp", minerAddr)
@@ -906,8 +896,8 @@ func (m *Miner) BidirectionalSetup(request *MinerRequest, response *MinerRespons
 }
 
 func (m *Miner) GetBlockChain(request *MinerRequest, response *MinerResponse) error {
-	m.RLock()
-	defer m.RUnlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	logger.Println("GetBlockChain")
 
@@ -931,8 +921,8 @@ func (m *Miner) GetBlockChain(request *MinerRequest, response *MinerResponse) er
 
 // Get the amount of ink remaining associated with the miners pub/priv key pair
 func (m *Miner) GetInk(request *ArtnodeRequest, response *MinerResponse) error {
-	m.RLock()
-	defer m.RUnlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	token := request.Token
 	_, validToken := m.tokens[token]
@@ -950,8 +940,8 @@ func (m *Miner) GetInk(request *ArtnodeRequest, response *MinerResponse) error {
 
 // Get the hash of the genesis block
 func (m *Miner) GetGenesisBlock(request *ArtnodeRequest, response *MinerResponse) error {
-	m.RLock()
-	defer m.RUnlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	token := request.Token
 	_, validToken := m.tokens[token]
@@ -970,8 +960,8 @@ func (m *Miner) GetGenesisBlock(request *ArtnodeRequest, response *MinerResponse
 // Gets a list of shape hashes (operation signatures) in a given block.
 //
 func (m *Miner) GetShapes(request *ArtnodeRequest, response *MinerResponse) error {
-	m.RLock()
-	defer m.RUnlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	token := request.Token
 	_, validToken := m.tokens[token]
@@ -1000,8 +990,8 @@ func (m *Miner) GetShapes(request *ArtnodeRequest, response *MinerResponse) erro
 
 // Get a list of block hashes which are children of a given block
 func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) error {
-	m.RLock()
-	defer m.RUnlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	token := request.Token
 	_, validToken := m.tokens[token]
@@ -1024,8 +1014,8 @@ func (m *Miner) GetChildren(request *ArtnodeRequest, response *MinerResponse) er
 }
 
 func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err error) {
-	m.Lock()
-	defer m.Unlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	token := request.Token
 	_, validToken := m.tokens[token]
@@ -1071,8 +1061,8 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 }
 
 func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (err error) {
-	m.Lock()
-	defer m.Unlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	token := request.Token
 	_, validToken := m.tokens[token]
@@ -1111,8 +1101,8 @@ func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (e
 }
 
 func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (err error) {
-	m.RLock()
-	defer m.RUnlock()
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
 	token := request.Token
 	_, validToken := m.tokens[token]

@@ -685,7 +685,7 @@ func (m *Miner) reverseBlockInk(block *Block) {
 
 func (m *Miner) blockSuccessfullyMined(block *Block) bool {
 	blockHash := hashBlock(block)
-	if m.hashMatchesPOWDifficulty(blockHash) {
+	if m.hashMatchesPOWDifficulty(blockHash, len(block.Records)) {
 		err := m.validateBlock(block)
 		if err != nil {
 			return false
@@ -702,15 +702,25 @@ func (m *Miner) blockSuccessfullyMined(block *Block) bool {
 }
 
 // Asserts that block hash matches the intended POW difficulty
-func (m *Miner) hashMatchesPOWDifficulty(blockhash string) bool {
-	return strings.HasSuffix(blockhash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock)))
+func (m *Miner) hashMatchesPOWDifficulty(blockHash string, numRecords int) bool {
+	if numRecords == 0 {
+		return strings.HasSuffix(blockHash, strings.Repeat("0", int(m.settings.PoWDifficultyNoOpBlock)))
+	} else {
+		return strings.HasSuffix(blockHash, strings.Repeat("0", int(m.settings.PoWDifficultyOpBlock)))
+	}
 }
 
 // Moves all operations in a newly mined block from the unmined op collection
 // to the unvalidated op collection.
 func (m *Miner) moveUnminedToUnvalidated(block *Block) {
 	for _, opRecord := range block.Records {
-		m.unvalidatedOps[opRecord.OpSig] = &opRecord
+		// previously using &opRecord would not work properly when adding multiple
+		// records into unvalidated. Deep copy ensures the values exist in that map
+		newOpRecord := &OperationRecord{
+			Op: opRecord.Op,
+			OpSig: opRecord.OpSig,
+			PubKeyString: opRecord.PubKeyString}
+		m.unvalidatedOps[opRecord.OpSig] = newOpRecord
 		delete(m.unminedOps, opRecord.OpSig)
 	}
 }
@@ -1221,7 +1231,7 @@ func (m *Miner) addOperationRecord(op *Operation) (opSig string) {
 // - the given block points to a valid hash in the blockchain
 func (m *Miner) validateBlock(block *Block) error {
 	blockHash := hashBlock(block)
-	if m.hashMatchesPOWDifficulty(blockHash) && m.validateOpIntegrity(block) && m.blockchain[block.PrevHash] != nil {
+	if m.hashMatchesPOWDifficulty(blockHash, len(block.Records)) && m.validateOpIntegrity(block) && m.blockchain[block.PrevHash] != nil {
 		logger.Println("Received Block has been validated")
 		return nil
 	}

@@ -151,7 +151,7 @@ type MinerInfo struct {
 
 type BlockchainMap struct {
 	Blockchain map[string]*Block
-	Lock sync.RWMutex
+	Lock       sync.RWMutex
 }
 
 // </TYPE DECLARATIONS>
@@ -1329,14 +1329,14 @@ func md5Hash(data []byte) string {
 // BlockchainMap lock helpers
 
 func (b *BlockchainMap) Set(key string, value *Block) {
-    b.Lock.Lock()
-    b.Blockchain[key] = value
-    b.Lock.Unlock()
+	b.Lock.Lock()
+	b.Blockchain[key] = value
+	b.Lock.Unlock()
 }
 func (b *BlockchainMap) Get(key string) *Block {
-    b.Lock.RLock()
-    defer b.Lock.RUnlock()
-    return b.Blockchain[key]
+	b.Lock.RLock()
+	defer b.Lock.RUnlock()
+	return b.Blockchain[key]
 }
 
 // UNCOMMENT to test op mining - can remove once ops begin to flow

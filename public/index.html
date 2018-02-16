@@ -6,8 +6,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.5.13/vue.js"></script>
     <script src="http://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/vue-resource/1.3.4/vue-resource.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <!--Import materialize.css-->
+    <link type="text/css" rel="stylesheet" href="materialize.css" media="screen,projection" />
 </head>
 
 <body>
@@ -41,7 +42,7 @@
                         <div class="col s6">
                             <p class="right-align">Current BlockChain length: {{BlockChain.length}}</p>
                             <button v-on:click="resetShapes" class="right">
-                                    Clear Filters
+                                Display All
                              </button>
                         </div>
                         <br>
@@ -50,12 +51,27 @@
                 <div class="divider"></div>
                 <div class="section">
                     <div class="row">
+                        <p>Blocks with Shapes:</p>
+                        <div style="overflow-x: scroll; width:100%;" id="blocksScroll" v-on:scroll="handleScroll">
+                            <table>
+                                <tr>
+                                    <td v-for="block in blocksWithShapes" v-on:click="filterShapes(block)">
+                                        {{block.BlockHash}}
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="divider"></div>
+                <div class="section">
+                    <div class="row">
                         <div class="card">
                             <svg v-bind:width="CanvasX" v-bind:height="CanvasY">
-                                       <template v-for="shape in Shapes">
-                                               <g v-html="shape"></g>
-                                       </template>
-                                    </svg>
+                                 <template v-for="shape in Shapes">
+                                    <g v-html="shape"></g>
+                                 </template>
+                            </svg>
                         </div>
                     </div>
                 </div>

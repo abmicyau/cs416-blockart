@@ -939,7 +939,11 @@ func (l LineSegment) GetIntersect(_l LineSegment) (point Point, err error) {
 
 	p := Point{x, y}
 	if l.HasPoint(p) && _l.HasPoint(p) {
-		point = p
+		if (p == l.End && l.End == _l.Start) || (p == _l.End && _l.End == l.Start) {
+			err = errors.New("No intersect exists.")
+		} else {
+			point = p
+		}
 	} else {
 		err = errors.New("No intersect exists.")
 	}

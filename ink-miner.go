@@ -676,6 +676,7 @@ func (m *Miner) blockSuccessfullyMined(block *Block) bool {
 		logger.Println("Found a new Block!: ", block, blockHash)
 		m.addBlock(block)
 		m.applyBlock(block)
+		time.Sleep(50 * time.Millisecond)
 		// logger.Println("Current BlockChainMap: ", m.blockchain)
 		return true
 	} else {

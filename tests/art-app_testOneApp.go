@@ -138,7 +138,7 @@ func main() {
 	testCase = fmt.Sprintf("Adding Out of bounds Svg Shape to Canvas")
 	badsvgString = "M -" + strconv.Itoa(int(app.settings.CanvasXMax)) + " -" + strconv.Itoa(int(app.settings.CanvasYMax)) + " L -" + strconv.Itoa(int(app.settings.CanvasXMax)) + " -" + strconv.Itoa(int(app.settings.CanvasYMax))
 	_, _, _, err = app.canvas.AddShape(validateNum, shapeType, badsvgString, fill, stroke)
-	if checkError(err) == nil {
+	if checkError(err) != nil {
 		logger.TestResult(testCase, true)
 	} else {
 		logger.TestResult(testCase, false)

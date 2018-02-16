@@ -373,7 +373,7 @@ func (s Shape) getPathGeometry() (geometry PathGeometry, err error) {
 	}
 
 	// Make sure its closed
-	if s.Fill != "transparent" {
+	if s.Fill != "transparent" && s.Fill != "white" && s.Stroke != "white" {
 		if len(geometry.VertexSets) > 1 {
 			err = InvalidShapeSvgStringError(s.ShapeSvgString)
 		} else {

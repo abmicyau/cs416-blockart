@@ -111,7 +111,7 @@ type Miner struct {
 	settings        *MinerNetSettings
 	nonces          map[string]bool
 	tokens          map[string]bool
-	newLongestChain chan bool
+	newLongestChain bool
 	unminedOps      map[string]*OperationRecord
 	unvalidatedOps  map[string]*OperationRecord
 	validatedOps    map[string]*OperationRecord
@@ -231,7 +231,7 @@ func (m *Miner) init() {
 	m.pubKey = *pubKey
 	m.pubKeyString = args[1]
 
-	m.newLongestChain = make(chan bool)
+	m.newLongestChain = false
 }
 
 func (m *Miner) listenRPC() {
@@ -416,14 +416,13 @@ func (m *Miner) mineBlock() {
 	m.lock.Unlock()
 
 	for {
-		select {
-		case <-m.newLongestChain:
-			m.lock.Lock()
+		m.lock.Lock()
+		if m.newLongestChain {
+			m.newLongestChain = false
 			logger.Println("Got a new longest chain, switching to: ", m.blockchainHead)
 			m.lock.Unlock()
 			return
-		default:
-			m.lock.Lock()
+		} else {
 			var block Block
 			// Will create a opBlock or noOpBlock depending upon whether unminedOps are waiting to be mined
 			if len(m.unminedOps) > 0 {
@@ -441,8 +440,8 @@ func (m *Miner) mineBlock() {
 			} else {
 				nonce++
 			}
-			m.lock.Unlock()
 		}
+		m.lock.Unlock()
 	}
 }
 
@@ -484,7 +483,6 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 	oldBlock := m.blockchain[oldBlockHash]
 	newBranch := []*Block{}
 	oldBranch := []*Block{}
-
 	// [Fast Forward + Branch Switch]
 	// Add blocks to the new branch up to the block num of the old branch head
 	for newBlock.BlockNo > oldBlock.BlockNo {
@@ -516,7 +514,6 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 		}
 		m.reverseBlockInk(block)
 	}
-
 	// [Fast Forward + Branch Switch]
 	// Apply the blocks in the new branch. NOTE THE ORDER IN WHICH THIS IS DONE.
 	// Must be oldest -> newest!
@@ -524,8 +521,7 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 	for i := len(newBranch) - 1; i >= 0; i-- {
 		m.applyBlock(newBranch[i])
 	}
-
-	m.newLongestChain <- true
+	m.newLongestChain = true
 }
 
 // Sends block to all connected miners

@@ -154,7 +154,7 @@ type MinerInfo struct {
 
 type BlockchainMap struct {
 	Blockchain map[string]*Block
-	Lock sync.RWMutex
+	Lock       sync.RWMutex
 }
 
 // </TYPE DECLARATIONS>

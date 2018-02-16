@@ -116,6 +116,7 @@ type Miner struct {
 	unminedOps      map[string]*OperationRecord
 	unvalidatedOps  map[string]*OperationRecord
 	validatedOps    map[string]*OperationRecord
+	failedOps       map[string]*OperationRecord
 	tempOps         map[string]*OperationRecord
 }
 
@@ -130,6 +131,7 @@ type Block struct {
 type Operation struct {
 	Type         OpType
 	Shape        shapelib.Shape
+	Ref          string
 	InkCost      uint32
 	ValidateNum  uint8
 	NumRemaining uint8
@@ -140,6 +142,7 @@ type OperationRecord struct {
 	Op           Operation
 	OpSig        string
 	PubKeyString string
+	Error        error
 }
 
 type Signature struct {
@@ -402,6 +405,7 @@ func (m *Miner) initBlockchainCache() {
 	m.unminedOps = make(map[string]*OperationRecord)
 	m.unvalidatedOps = make(map[string]*OperationRecord)
 	m.validatedOps = make(map[string]*OperationRecord)
+	m.failedOps = make(map[string]*OperationRecord)
 	m.tempOps = make(map[string]*OperationRecord)
 	m.blockchain = make(map[string]*Block)
 	m.inkAccounts = make(map[string]uint32)
@@ -432,9 +436,11 @@ func (m *Miner) mineBlock() {
 			var block Block
 			// Will create a opBlock or noOpBlock depending upon whether unminedOps are waiting to be mined
 			if len(m.unminedOps) > 0 {
-				var opRecordArray []OperationRecord
+				opRecordArray := make([]OperationRecord, len(m.unminedOps))
+				i := 0
 				for _, opRecord := range m.unminedOps {
-					opRecordArray = append(opRecordArray, *opRecord)
+					opRecordArray[i] = *opRecord
+					i++
 				}
 				block = Block{blockNo, prevHash, opRecordArray, m.pubKeyString, nonce}
 			} else {
@@ -489,6 +495,7 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 	oldBlock := m.blockchain[oldBlockHash]
 	newBranch := []*Block{}
 	oldBranch := []*Block{}
+
 	// [Fast Forward + Branch Switch]
 	// Add blocks to the new branch up to the block num of the old branch head
 	for newBlock.BlockNo > oldBlock.BlockNo {
@@ -520,6 +527,7 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 		}
 		m.reverseBlockInk(block)
 	}
+
 	// [Fast Forward + Branch Switch]
 	// Apply the blocks in the new branch. NOTE THE ORDER IN WHICH THIS IS DONE.
 	// Must be oldest -> newest!
@@ -527,6 +535,8 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 	for i := len(newBranch) - 1; i >= 0; i-- {
 		m.applyBlock(newBranch[i])
 	}
+
+	m.validateUnminedOps()
 	m.newLongestChain = true
 }
 
@@ -628,15 +638,7 @@ func (m *Miner) addBlockChild(block *Block) {
 func (m *Miner) applyBlockAndOpInk(block *Block) {
 	// update ink per operation
 	for _, record := range block.Records {
-		op := record.Op
-		if _, exists := m.inkAccounts[record.PubKeyString]; !exists {
-			m.inkAccounts[record.PubKeyString] = 0
-		}
-		if op.Type == ADD {
-			m.inkAccounts[record.PubKeyString] -= op.InkCost
-		} else {
-			m.inkAccounts[record.PubKeyString] += op.InkCost
-		}
+		m.applyOpInk(&record)
 	}
 
 	// add ink for the newly mined block
@@ -648,6 +650,20 @@ func (m *Miner) applyBlockAndOpInk(block *Block) {
 	} else {
 		m.inkAccounts[block.PubKeyString] += m.settings.InkPerOpBlock
 	}
+}
+
+func (m *Miner) applyOpInk(opRecord *OperationRecord) (inkRemaining uint32) {
+	op := opRecord.Op
+	if _, exists := m.inkAccounts[opRecord.PubKeyString]; !exists {
+		m.inkAccounts[opRecord.PubKeyString] = 0
+	}
+	if op.Type == ADD {
+		m.inkAccounts[opRecord.PubKeyString] -= op.InkCost
+	} else {
+		m.inkAccounts[opRecord.PubKeyString] += op.InkCost
+	}
+
+	return m.inkAccounts[opRecord.PubKeyString]
 }
 
 func (m *Miner) reverseOpInk(opRecord *OperationRecord) {
@@ -878,18 +894,28 @@ func (m *Miner) SendOp(request *MinerRequest, response *MinerResponse) error {
 
 	opRec := request.Payload[0].(OperationRecord)
 	logger.Println("Received Op: ", opRec.OpSig)
-	isSigValid := m.validateSignature(opRec)
-	// If new block, disseminate
-	_, unMinedExists := m.unminedOps[opRec.OpSig]
-	_, unValidExists := m.unvalidatedOps[opRec.OpSig]
+
+	if opRec.Op.Type == ADD {
+		if _, shapeError := m.validateNewShape(opRec.Op.Shape); shapeError != nil {
+			// The shape being added isn't valid
+			return nil
+		}
+	} else if _, shapeExists := m.validatedOps[opRec.Op.Ref]; !shapeExists {
+		// The shape being deleted doesn't exist
+		return nil
+	}
+
+	// If new op, disseminate
+	_, unminedExists := m.unminedOps[opRec.OpSig]
+	_, unvalidExists := m.unvalidatedOps[opRec.OpSig]
 	_, validExists := m.validatedOps[opRec.OpSig]
+	isSigValid := m.validateSignature(opRec)
 
-	if !unMinedExists && !unValidExists && !validExists && isSigValid {
+	if !unminedExists && !unvalidExists && !validExists && isSigValid {
 		m.unminedOps[opRec.OpSig] = &opRec
-
-		//	Disseminate Op to connected Miners
 		m.disseminateOpToConnectedMiners(&opRec)
 	}
+
 	return nil
 }
 
@@ -1057,9 +1083,9 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		Stroke:         stroke,
 		Owner:          m.pubKeyString}
 
-	inkCost, err := m.validateNewShape(shape)
-	if err != nil {
-		response.Error = err
+	inkCost, shapeError := m.validateNewShape(shape)
+	if shapeError != nil {
+		response.Error = shapeError
 		return
 	}
 
@@ -1101,12 +1127,14 @@ func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (e
 	}
 
 	delShape := opRecord.Op.Shape
+	inkCost := opRecord.Op.InkCost
 	delShape.Fill, delShape.Stroke = "white", "white"
 
 	op := Operation{
 		Type:         REMOVE,
 		Shape:        delShape,
-		InkCost:      0, // Set to 0, to further identify delete
+		Ref:          opRecord.OpSig,
+		InkCost:      inkCost,
 		ValidateNum:  validateNum,
 		NumRemaining: validateNum,
 		TimeStamp:    time.Now().UnixNano()}
@@ -1132,23 +1160,28 @@ func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (e
 	}
 
 	opSig := request.Payload[0].(string)
-	op := m.validatedOps[opSig]
+	validOp := m.validatedOps[opSig]
+	failedOp := m.failedOps[opSig]
 
 	response.Payload = make([]interface{}, 3)
 	response.Payload[0] = false
 	response.Payload[1] = ""
 	response.Payload[2] = uint32(0)
-	if op == nil {
-		response.Payload[0] = false
-	} else {
+
+	if validOp != nil {
 		blockHash, err := m.getOpBlockHash(opSig)
 		if err != nil {
 			response.Error = err
 		} else {
 			response.Payload[0] = true
 			response.Payload[1] = blockHash
-			response.Payload[2] = m.inkAccounts[op.PubKeyString]
+			response.Payload[2] = m.inkAccounts[validOp.PubKeyString]
 		}
+	} else if failedOp != nil {
+		response.Error = failedOp.Error
+		delete(m.failedOps, opSig)
+	} else {
+		response.Payload[0] = false
 	}
 
 	return
@@ -1199,22 +1232,99 @@ func (m *Miner) validateBlock(block *Block) error {
 // Helper function to assert that each op in a block is signed properly,
 // shape is valid, and the public key has enough ink.
 func (m *Miner) validateOpIntegrity(block *Block) bool {
+	addOps := map[string]*OperationRecord{}
+	removeOps := map[string]*OperationRecord{}
+	blockValid := true
+
+	// Check for valid signatures and credit ink for REMOVE operations first
 	for _, opRecord := range block.Records {
-		if m.validateSignature(opRecord) {
-			// add op to tempOps to check for shape harmony (yes, harmony :))
-			m.tempOps[opRecord.OpSig] = &opRecord
-			_, err := m.validateNewShape(opRecord.Op.Shape)
-			if err != nil {
-				logger.Println(err)
-				return false
+		if !m.validateSignature(opRecord) {
+			blockValid = false
+		}
+		if opRecord.Op.Type == REMOVE {
+			removeOps[opRecord.OpSig] = &opRecord
+			m.applyOpInk(&opRecord)
+
+			// Check to see if the shape being deleted exists
+			if _, exists := m.validatedOps[opRecord.Op.Ref]; !exists {
+				blockValid = false
 			}
 		} else {
-			return false
+			addOps[opRecord.OpSig] = &opRecord
 		}
 	}
-	// cleanup all tempOps
+
+	// Validate each ADD operation
+	for opSig, opRecord := range addOps {
+		_, err := m.validateNewShape(opRecord.Op.Shape)
+		if err != nil {
+			logger.Println(err)
+			delete(addOps, opSig)
+			blockValid = false
+		} else {
+			m.applyOpInk(opRecord)
+			m.tempOps[opSig] = opRecord
+		}
+	}
+
+	// Clean up tempOps
 	m.tempOps = map[string]*OperationRecord{}
-	return true
+	// Reverse temporary inkAccount changes
+	for _, opRecord := range removeOps {
+		m.reverseOpInk(opRecord)
+	}
+	for _, opRecord := range addOps {
+		m.reverseOpInk(opRecord)
+	}
+
+	return blockValid
+}
+
+// Validates a the miner's current collection of unmined ops. The shapes
+// within the ops are tested for validity and sufficient ink. Ops failing
+// validation will be added to the failedOps collection with the error saved.
+//
+// This is necessary because in the case of a branch switch, unmined ops
+// could become invalid when if shapes in the new branch cause conflicts,
+// or use up too much ink. This is how ops return as failed.
+//
+// This assumes that signatures have already been validated (otherwise
+// they wouldn't have been added to the unminedOps collection).
+//
+// ADD operations which conflict with some other unmined operation will be
+// successively removed until conflicts no longer occur. The order is
+// unspecified.
+func (m *Miner) validateUnminedOps() {
+	addOps := map[string]*OperationRecord{}
+	removeOps := map[string]*OperationRecord{}
+
+	for opSig, opRecord := range m.unminedOps {
+		if opRecord.Op.Type == REMOVE {
+			// Credit ink for remove operations first
+			removeOps[opSig] = opRecord
+			m.applyOpInk(opRecord)
+		} else {
+			// Otherwise, save the op to test later
+			addOps[opSig] = opRecord
+		}
+	}
+
+	// Validate each ADD operation and remove if invalid
+	for opSig, opRecord := range addOps {
+		_, err := m.validateNewShape(opRecord.Op.Shape)
+		if err != nil {
+			opRecord.Error = err
+			m.failedOps[opSig] = opRecord
+			delete(m.unminedOps, opSig)
+		} else {
+			m.applyOpInk(opRecord)
+		}
+	}
+
+	// Reverse temporary inkAccount changes
+	for _, opRecord := range m.unminedOps {
+		m.reverseOpInk(opRecord)
+	}
 }
 
 func (m *Miner) validateSignature(opRecord OperationRecord) bool {

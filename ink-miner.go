@@ -151,6 +151,11 @@ type MinerInfo struct {
 	Key     ecdsa.PublicKey
 }
 
+type BlockchainMap struct {
+	Blockchain map[string]*Block
+	Lock sync.RWMutex
+}
+
 // </TYPE DECLARATIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -664,6 +669,10 @@ func (m *Miner) reverseBlockInk(block *Block) {
 func (m *Miner) blockSuccessfullyMined(block *Block) bool {
 	blockHash := hashBlock(block)
 	if m.hashMatchesPOWDifficulty(blockHash) {
+		err := m.validateBlock(block)
+		if err != nil {
+			return false
+		}
 		logger.Println("Found a new Block!: ", block, blockHash)
 		m.addBlock(block)
 		m.applyBlock(block)
@@ -1181,6 +1190,7 @@ func (m *Miner) validateOpIntegrity(block *Block) bool {
 			m.tempOps[opRecord.OpSig] = &opRecord
 			_, err := m.validateNewShape(opRecord.Op.Shape)
 			if err != nil {
+				logger.Println(err)
 				return false
 			}
 		} else {

@@ -8,14 +8,14 @@ package main
 import "./blockartlib"
 
 import (
-	"fmt"
-	"os"
-	"strconv"
-	"strings"
 	"bufio"
 	"crypto/md5"
 	"crypto/x509"
 	"encoding/hex"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
 )
 
 type App struct {
@@ -57,10 +57,10 @@ func (app *App) Prompt() {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("ArtApp> ")
-    	cmd, _ := reader.ReadString('\n')
-    	if app.HandleCommand(cmd) == 1 {
-    		return
-    	}
+		cmd, _ := reader.ReadString('\n')
+		if app.HandleCommand(cmd) == 1 {
+			return
+		}
 	}
 }
 
@@ -110,8 +110,8 @@ func (app *App) AddShape(args []string) {
 	var shapeType blockartlib.ShapeType
 	if shapeTypeString == "PATH" {
 		shapeType = blockartlib.PATH
-	// } else if shapeTypeString == "CIRCLE" {
-	// 	shapeType = blockartlib.CIRCLE
+	} else if shapeTypeString == "CIRCLE" {
+		shapeType = blockartlib.CIRCLE
 	} else {
 		fmt.Println(" AddShape: invalid shapeType.")
 		return

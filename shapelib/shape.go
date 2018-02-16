@@ -373,7 +373,7 @@ func (s Shape) getPathGeometry() (geometry PathGeometry, err error) {
 	}
 
 	// Make sure its closed
-	if s.Fill != "transparent" {
+	if s.Fill != "transparent" && s.Fill != "white" && s.Stroke != "white" {
 		if len(geometry.VertexSets) > 1 {
 			err = InvalidShapeSvgStringError(s.ShapeSvgString)
 		} else {
@@ -939,7 +939,11 @@ func (l LineSegment) GetIntersect(_l LineSegment) (point Point, err error) {
 
 	p := Point{x, y}
 	if l.HasPoint(p) && _l.HasPoint(p) {
-		point = p
+		if (p == l.End && l.End == _l.Start) || (p == _l.End && _l.End == l.Start) {
+			err = errors.New("No intersect exists.")
+		} else {
+			point = p
+		}
 	} else {
 		err = errors.New("No intersect exists.")
 	}

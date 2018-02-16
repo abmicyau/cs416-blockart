@@ -321,7 +321,6 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 	}
 
 	shapeHash = response.Payload[0].(string)
-	inkRemaining = response.Payload[1].(uint32)
 
 	request = new(ArtnodeRequest)
 	request.Token = c.Token
@@ -333,6 +332,7 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 
 		validated := response.Payload[0].(bool)
 		blockHash = response.Payload[1].(string)
+		inkRemaining = response.Payload[2].(uint32)
 		if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
 			err = DisconnectedError(c.MinerAddr)
 			return
@@ -422,7 +422,6 @@ func (c CanvasInstance) DeleteShape(validateNum uint8, shapeHash string) (inkRem
 	}
 
 	opSig := response.Payload[0].(string)
-	inkRemaining = response.Payload[1].(uint32)
 
 	request = new(ArtnodeRequest)
 	request.Token = c.Token
@@ -433,6 +432,8 @@ func (c CanvasInstance) DeleteShape(validateNum uint8, shapeHash string) (inkRem
 		err = c.Miner.Call("Miner.OpValidated", request, response)
 
 		validated := response.Payload[0].(bool)
+		inkRemaining = response.Payload[2].(uint32)
+
 		if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
 			err = DisconnectedError(c.MinerAddr)
 			return

@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/rpc"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -808,10 +809,23 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
 		return nil
 	}
 
-	shape := opRecord.Op.Shape
 	response.Error = nil
 	response.Payload = make([]interface{}, 1)
-	response.Payload[0] = `<path d="` + shape.ShapeSvgString + `" stroke="` + shape.Stroke + `" fill="` + shape.Fill + `"/>`
+
+	shape := opRecord.Op.Shape
+	if shape.ShapeType == shapelib.CIRCLE {
+		_geo, _ := shape.GetGeometry()
+		geo, _ := _geo.(shapelib.CircleGeometry)
+
+		cx := strconv.FormatInt(geo.Center.X, 10)
+		cy := strconv.FormatInt(geo.Center.Y, 10)
+		r := strconv.FormatInt(geo.Radius, 10)
+
+		response.Payload[0] = `<circle cx="` + cx + `" cy="` + cy + `" r="` + r + `" stroke="` + shape.Stroke + `" fill="` + shape.Fill + `"/>`
+	} else {
+		response.Payload[0] = `<path d="` + shape.ShapeSvgString + `" stroke="` + shape.Stroke + `" fill="` + shape.Fill + `"/>`
+	}
+
 	return nil
 }
 

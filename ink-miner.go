@@ -694,7 +694,13 @@ func (m *Miner) hashMatchesPOWDifficulty(blockhash string) bool {
 // to the unvalidated op collection.
 func (m *Miner) moveUnminedToUnvalidated(block *Block) {
 	for _, opRecord := range block.Records {
-		m.unvalidatedOps[opRecord.OpSig] = &opRecord
+		// previously using &opRecord would not work properly when adding multiple
+		// records into unvalidated. Deep copy ensures the values exist in that map
+		newOpRecord := &OperationRecord{
+			Op: opRecord.Op,
+			OpSig: opRecord.OpSig,
+			PubKeyString: opRecord.PubKeyString}
+		m.unvalidatedOps[opRecord.OpSig] = newOpRecord
 		delete(m.unminedOps, opRecord.OpSig)
 	}
 }

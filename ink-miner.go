@@ -137,6 +137,7 @@ type Operation struct {
 	ValidateNum  uint8
 	NumRemaining uint8
 	TimeStamp    int64
+	Deleted      bool
 }
 
 type OperationRecord struct {
@@ -740,6 +741,9 @@ func (m *Miner) moveUnminedToUnvalidated(block *Block) {
 func (m *Miner) moveUnvalidatedToValidated() {
 	for _, opRecord := range m.unvalidatedOps {
 		if opRecord.Op.NumRemaining <= 0 {
+			if opRecord.Op.Type == REMOVE {
+				m.validatedOps[opRecord.Op.Ref].Op.Deleted = true
+			}
 			m.validatedOps[opRecord.OpSig] = opRecord
 			delete(m.unvalidatedOps, opRecord.OpSig)
 			logger.Println("OperationRecord has been validated. [" + opRecord.Op.Shape.ShapeSvgString + "]")
@@ -917,9 +921,11 @@ func (m *Miner) SendOp(request *MinerRequest, response *MinerResponse) error {
 			// The shape being added isn't valid
 			return nil
 		}
-	} else if _, shapeExists := m.validatedOps[opRec.Op.Ref]; !shapeExists {
-		// The shape being deleted doesn't exist
-		return nil
+	} else {
+		opRecord := m.validatedOps[opRec.Op.Ref]
+		if opRecord == nil || opRecord.PubKeyString != opRec.PubKeyString || opRecord.Op.Deleted {
+			return nil
+		}
 	}
 
 	// If new op, disseminate
@@ -1118,7 +1124,8 @@ func (m *Miner) AddShape(request *ArtnodeRequest, response *MinerResponse) (err 
 		InkCost:      inkCost,
 		ValidateNum:  validateNum,
 		NumRemaining: validateNum,
-		TimeStamp:    time.Now().UnixNano()}
+		TimeStamp:    time.Now().UnixNano(),
+		Deleted:      false}
 
 	opSig := m.addOperationRecord(&op)
 
@@ -1144,7 +1151,7 @@ func (m *Miner) DeleteShape(request *ArtnodeRequest, response *MinerResponse) (e
 	validateNum := request.Payload[1].(uint8)
 
 	opRecord := m.validatedOps[shapeHash]
-	if opRecord == nil || opRecord.PubKeyString != m.pubKeyString {
+	if opRecord == nil || opRecord.PubKeyString != m.pubKeyString || opRecord.Op.Deleted {
 		response.Error = errorLib.ShapeOwnerError(shapeHash)
 		return
 	}
@@ -1284,14 +1291,19 @@ func (m *Miner) validateOpIntegrity(block *Block) bool {
 		}
 		if opRecord.Op.Type == REMOVE {
 			removeOps[opRecord.OpSig] = &opRecord
-			m.applyOpInk(&opRecord)
-
-			// Check to see if the shape being deleted exists
-			if _, exists := m.validatedOps[opRecord.Op.Ref]; !exists {
-				blockValid = false
-			}
 		} else {
 			addOps[opRecord.OpSig] = &opRecord
+		}
+	}
+
+	// Validate each REMOVE operation
+	for opSig, opRecord := range removeOps {
+		originalOp := m.validatedOps[opRecord.Op.Ref]
+		if originalOp == nil || originalOp.Op.Deleted {
+			delete(removeOps, opSig)
+			blockValid = false
+		} else {
+			m.applyOpInk(opRecord)
 		}
 	}
 
@@ -1341,12 +1353,21 @@ func (m *Miner) validateUnminedOps() {
 
 	for opSig, opRecord := range m.unminedOps {
 		if opRecord.Op.Type == REMOVE {
-			// Credit ink for remove operations first
 			removeOps[opSig] = opRecord
-			m.applyOpInk(opRecord)
 		} else {
-			// Otherwise, save the op to test later
 			addOps[opSig] = opRecord
+		}
+	}
+
+	// Validate each REMOVE operation and remove if invalid
+	for opSig, opRecord := range removeOps {
+		originalOp := m.validatedOps[opRecord.Op.Ref]
+		if originalOp == nil || originalOp.Op.Deleted {
+			opRecord.Error = errorLib.ShapeOwnerError(originalOp.OpSig)
+			m.failedOps[opSig] = opRecord
+			delete(m.unminedOps, opSig)
+		} else {
+			m.applyOpInk(opRecord)
 		}
 	}
 

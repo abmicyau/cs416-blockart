@@ -287,7 +287,8 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 	settingX := response.Payload[1].(uint32)
 	settingY := response.Payload[2].(uint32)
 	setting = CanvasSettings{CanvasXMax: settingX, CanvasYMax: settingY}
-	canvas = CanvasInstance{minerAddr, miner, token, &false}
+	closed := false
+	canvas = CanvasInstance{minerAddr, miner, token, &closed}
 
 	return canvas, setting, nil
 }
@@ -537,8 +538,6 @@ func (c CanvasInstance) GetChildren(blockHash string) (blockHashes []string, err
 func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
 	request := new(ArtnodeRequest)
 	request.Token = c.Token
-	request.Payload = make([]interface{}, 1)
-	request.Payload[0] = blockHash
 	response := new(MinerResponse)
 
 	err = c.Miner.Call("Miner.CloseCanvas", request, response)

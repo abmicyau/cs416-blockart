@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/rpc"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -159,6 +160,13 @@ type BlockchainMap struct {
 	Blockchain map[string]*Block
 	Lock       sync.RWMutex
 }
+
+type Pair struct {
+	Key   string
+	Value int
+}
+
+type PairList []Pair
 
 // </TYPE DECLARATIONS>
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -350,16 +358,25 @@ func (m *Miner) initBlockchain() {
 	defer m.lock.Unlock()
 
 	request := new(MinerRequest)
-	var longestChain []Block
 
 	m.initBlockchainCache()
 
-	// For each connected miner, request their longest blockchain, and then
-	// simulate adding that blockchain to this miner to check for validity
-	for _, minerCon := range m.miners {
+	// For each connected Miner, get the length of their longest chain first
+	mapMinerAndLength := make(map[string]int)
+	for minerAddr, minerCon := range m.miners {
 		singleResponse := new(MinerResponse)
-		minerCon.Call("Miner.GetBlockChain", request, singleResponse)
+		minerCon.Call("Miner.GetBlockChainLength", request, singleResponse)
+		if len(singleResponse.Payload) > 0 {
+			lengthMinerChain := singleResponse.Payload[0].(int)
+			mapMinerAndLength[minerAddr] = lengthMinerChain
+		}
+	}
 
+	sortedMap := sortMap(mapMinerAndLength)
+	// Then get go through from highest to lowest
+	for _, pair := range sortedMap {
+		singleResponse := new(MinerResponse)
+		m.miners[pair.Key].Call("Miner.GetBlockChain", request, singleResponse)
 		if len(singleResponse.Payload) > 0 {
 			currentChain := singleResponse.Payload[0].([]Block)
 			isChainValid := true
@@ -381,22 +398,15 @@ func (m *Miner) initBlockchain() {
 
 			// If the chain is valid and longer than any other valid chain we've received,
 			// then set it as the new longest chain
-			if isChainValid && len(currentChain) > len(longestChain) {
-				longestChain = currentChain
+			if isChainValid {
+				logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.blockchainHead].BlockNo+1)
+				break
 			}
 
 			// Reset the miner state
 			m.initBlockchainCache()
+			// otherwise go to the next one
 		}
-	}
-
-	if len(longestChain) > 0 {
-		for i := len(longestChain) - 1; i >= 0; i-- {
-			block := &longestChain[i]
-			m.addBlock(block)
-			m.applyBlock(block)
-		}
-		logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.blockchainHead].BlockNo+1)
 	}
 }
 
@@ -715,8 +725,8 @@ func (m *Miner) moveUnminedToUnvalidated(block *Block) {
 		// previously using &opRecord would not work properly when adding multiple
 		// records into unvalidated. Deep copy ensures the values exist in that map
 		newOpRecord := &OperationRecord{
-			Op: opRecord.Op,
-			OpSig: opRecord.OpSig,
+			Op:           opRecord.Op,
+			OpSig:        opRecord.OpSig,
 			PubKeyString: opRecord.PubKeyString}
 		m.unvalidatedOps[opRecord.OpSig] = newOpRecord
 		delete(m.unminedOps, opRecord.OpSig)
@@ -929,6 +939,12 @@ func (m *Miner) SendOp(request *MinerRequest, response *MinerResponse) error {
 // If a connected miner fails to reply, that miner should be removed from the map
 func (m *Miner) PingMiner(payload string, reply *bool) error {
 	*reply = true
+	return nil
+}
+
+func (m *Miner) GetBlockChainLength(request *MinerRequest, response *MinerResponse) error {
+	response.Payload = make([]interface{}, 1)
+	response.Payload[0] = int(m.blockchain[m.blockchainHead].BlockNo)
 	return nil
 }
 
@@ -1410,6 +1426,21 @@ func hashBlock(block *Block) string {
 	blockHash := md5Hash(encodedBlock)
 	return blockHash
 }
+
+func sortMap(minerAndLength map[string]int) PairList {
+	pl := make(PairList, len(minerAndLength))
+	i := 0
+	for k, v := range minerAndLength {
+		pl[i] = Pair{k, v}
+		i++
+	}
+	sort.Sort(sort.Reverse(pl))
+	return pl
+}
+
+func (p PairList) Len() int           { return len(p) }
+func (p PairList) Less(i, j int) bool { return p[i].Value < p[j].Value }
+func (p PairList) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 // Computes the md5 hash of a given byte slice
 func md5Hash(data []byte) string {

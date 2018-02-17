@@ -134,6 +134,7 @@ type CanvasInstance struct {
 	MinerAddr string
 	Miner     *rpc.Client
 	Token     string
+	Closed    *bool
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////
@@ -251,6 +252,7 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 	gob.Register(errorLib.InvalidSignatureError{})
 	gob.Register(errorLib.InvalidTokenError(""))
 	gob.Register(errorLib.ValidationError(""))
+	gob.Register(errorLib.InsufficientInkError(0))
 
 	miner, err := rpc.Dial("tcp", minerAddr)
 	if checkError(err) != nil {
@@ -286,7 +288,8 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 	settingX := response.Payload[1].(uint32)
 	settingY := response.Payload[2].(uint32)
 	setting = CanvasSettings{CanvasXMax: settingX, CanvasYMax: settingY}
-	canvas = CanvasInstance{minerAddr, miner, token}
+	closed := false
+	canvas = CanvasInstance{minerAddr, miner, token, &closed}
 
 	return canvas, setting, nil
 }
@@ -312,7 +315,7 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 
 	err = c.Miner.Call("Miner.AddShape", request, response)
 
-	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") || *c.Closed {
 		err = DisconnectedError(c.MinerAddr)
 		return
 	} else if response.Error != nil {
@@ -333,7 +336,7 @@ func (c CanvasInstance) AddShape(validateNum uint8, shapeType ShapeType, shapeSv
 		validated := response.Payload[0].(bool)
 		blockHash = response.Payload[1].(string)
 		inkRemaining = response.Payload[2].(uint32)
-		if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+		if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") || *c.Closed {
 			err = DisconnectedError(c.MinerAddr)
 			return
 		} else if response.Error != nil {
@@ -363,7 +366,7 @@ func (c CanvasInstance) GetSvgString(shapeHash string) (svgString string, err er
 	request.Payload[0] = shapeHash
 	response := new(MinerResponse)
 	err = c.Miner.Call("Miner.GetSvgString", request, response)
-	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") || *c.Closed {
 		err = DisconnectedError(c.MinerAddr)
 		return
 	} else if response.Error != nil {
@@ -388,7 +391,7 @@ func (c CanvasInstance) GetInk() (inkRemaining uint32, err error) {
 	response := new(MinerResponse)
 
 	err = c.Miner.Call("Miner.GetInk", request, response)
-	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") || *c.Closed {
 		err = DisconnectedError(c.MinerAddr)
 		return
 	} else if response.Error != nil {
@@ -413,7 +416,7 @@ func (c CanvasInstance) DeleteShape(validateNum uint8, shapeHash string) (inkRem
 	request.Payload[0] = shapeHash
 	request.Payload[1] = validateNum
 	err = c.Miner.Call("Miner.DeleteShape", request, response)
-	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") || *c.Closed {
 		err = DisconnectedError(c.MinerAddr)
 		return
 	} else if errorLib.IsType(response.Error, "ShapeOwnerError") {
@@ -434,7 +437,7 @@ func (c CanvasInstance) DeleteShape(validateNum uint8, shapeHash string) (inkRem
 		validated := response.Payload[0].(bool)
 		inkRemaining = response.Payload[2].(uint32)
 
-		if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+		if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") || *c.Closed {
 			err = DisconnectedError(c.MinerAddr)
 			return
 		} else if response.Error != nil {
@@ -469,7 +472,7 @@ func (c CanvasInstance) GetShapes(blockHash string) (shapeHashes []string, err e
 	response := new(MinerResponse)
 
 	err = c.Miner.Call("Miner.GetShapes", request, response)
-	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") || *c.Closed {
 		err = DisconnectedError(c.MinerAddr)
 		return
 	} else if response.Error != nil {
@@ -494,7 +497,7 @@ func (c CanvasInstance) GetGenesisBlock() (blockHash string, err error) {
 	response := new(MinerResponse)
 
 	err = c.Miner.Call("Miner.GetGenesisBlock", request, response)
-	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") || *c.Closed {
 		err = DisconnectedError(c.MinerAddr)
 		return
 	} else if response.Error != nil {
@@ -519,7 +522,7 @@ func (c CanvasInstance) GetChildren(blockHash string) (blockHashes []string, err
 	response := new(MinerResponse)
 
 	err = c.Miner.Call("Miner.GetChildren", request, response)
-	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") {
+	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") || *c.Closed {
 		err = DisconnectedError(c.MinerAddr)
 		return
 	} else if response.Error != nil {
@@ -534,8 +537,20 @@ func (c CanvasInstance) GetChildren(blockHash string) (blockHashes []string, err
 // Closes the canvas/connection to the BlockArt network.
 // - DisconnectedError
 func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
-	// TODO
-	return 0, nil
+	request := new(ArtnodeRequest)
+	request.Token = c.Token
+	response := new(MinerResponse)
+
+	err = c.Miner.Call("Miner.CloseCanvas", request, response)
+	if checkError(err) != nil || errorLib.IsType(response.Error, "InvalidTokenError") || *c.Closed {
+		err = DisconnectedError(c.MinerAddr)
+		return
+	}
+
+	inkRemaining = response.Payload[0].(uint32)
+	*c.Closed = true
+
+	return inkRemaining, nil
 }
 
 // </EXPORTED METHODS>

@@ -198,6 +198,7 @@ func main() {
 	gob.Register(errorLib.InvalidSignatureError{})
 	gob.Register(errorLib.InvalidTokenError(""))
 	gob.Register(errorLib.ValidationError(""))
+	gob.Register(errorLib.InsufficientInkError(0))
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()
@@ -1205,6 +1206,24 @@ func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (e
 	} else {
 		response.Payload[0] = false
 	}
+
+	return
+}
+
+func (m *Miner) CloseCanvas(request *ArtnodeRequest, response *MinerResponse) (err error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = errorLib.InvalidTokenError(token)
+		return
+	}
+
+	delete(m.tokens, token)
+	response.Payload = make([]interface{}, 1)
+	response.Payload[0] = m.inkAccounts[m.pubKeyString]
 
 	return
 }

@@ -17,9 +17,6 @@ var app = new Vue({
         this.initGetBlocks();
         document.getElementById('blocksScroll').addEventListener('scroll', this.handleScroll);
         console.log($('#blocksScroll').get(0).scrollWidth)
-        setInterval(function() {
-            this.getBlocks();
-        }.bind(this), 2000);
     },
     methods: {
         handleScroll: function(e) {
@@ -59,22 +56,46 @@ var app = new Vue({
             // console.log(document.getElementById('blocksScroll').scrollWidth)
         },
         getBlocks: function() {
-            this.$http.get('/getBlocks').then(function(response) {
-                console.log(response)
-                    //this.BlockChain = response.body.Blocks
-                for (var i = 0; i < response.body.Blocks.length; i++) {
-                    this.BlockChain.push(response.body.Blocks[i])
-                    if (response.body.Blocks[i].length > 0) {
-                        this.blockswithShapes.push(response.body.Blocks[i])
+            var that = this
+            jQuery.ajax({
+                url: '/getBlocks',
+                success: function(response) {
+                    console.log(response)
+                        //this.BlockChain = response.body.Blocks
+                    for (var i = 0; i < response.Blocks.length; i++) {
+                        that.BlockChain.push(response.Blocks[i])
+                        if (response.Blocks[i].length > 0) {
+                            that.blockswithShapes.push(response.Blocks[i])
+                        }
                     }
-                }
+                    var that_that = that;
+                    setTimeout(function() {
+                        that_that.getBlocks();
+                    }, 5000);
+                },
+                async: false
+            });
 
-                // for (var i = 0; i < this.BlockChain.length; i++) {
-                //     if (this.BlockChain[i].Shapes.length > 0) {
-                //         this.blocksWithShapes.push(this.BlockChain[i])
-                //     }
-                // }
-            })
+            // this.$http.get('/getBlocks').then(function(response) {
+            //     console.log(response)
+            //         //this.BlockChain = response.body.Blocks
+            //     for (var i = 0; i < response.body.Blocks.length; i++) {
+            //         this.BlockChain.push(response.body.Blocks[i])
+            //         if (response.body.Blocks[i].length > 0) {
+            //             this.blockswithShapes.push(response.body.Blocks[i])
+            //         }
+            //     }
+
+            //     // for (var i = 0; i < this.BlockChain.length; i++) {
+            //     //     if (this.BlockChain[i].Shapes.length > 0) {
+            //     //         this.blocksWithShapes.push(this.BlockChain[i])
+            //     //     }
+            //     // }
+            //     var that = this;
+            //     setTimeout(function() {
+            //         this.getBlocks();
+            //     }, 5000);
+
         },
         initGetBlocks: function() {
             this.$http.get('/getBlocksInit').then(function(response) {
@@ -85,6 +106,10 @@ var app = new Vue({
                         this.Shapes.push(this.BlockChain[i].Shapes[j])
                     }
                 }
+                var that = this;
+                setTimeout(function() {
+                    that.getBlocks();
+                }, 5000);
             })
         },
         filterShapes: function(block) {

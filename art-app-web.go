@@ -119,23 +119,28 @@ func InitBlocksHandler(w http.ResponseWriter, r *http.Request) {
 				LongestChainJson.Blocks[iBlock].Shapes[iShape] = svgString
 			}
 		}
-		if iBlock == len(blockHashes)-1 {
-			lastLongestHash = blockHash
-		}
 	}
+	lastLongestHash = blockHashes[len(blockHashes)-1]
 	log.Println("Last Longest Hash: ", lastLongestHash)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	json.NewEncoder(w).Encode(LongestChainJson)
 }
 
 func BlocksHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("Last hash: ", lastLongestHash)
 	genHash, _ := canvasGlobal.GetGenesisBlock()
 	var blockHashes []string
 	if len(lastLongestHash) == 0 {
 		blockHashes, _ = getChildren(genHash)
 	} else {
 		blockHashes, _ = getChildren(lastLongestHash)
-		blockHashes = blockHashes[1:]
+		log.Println("Length of blockHashes: ", len(blockHashes))
+		if len(blockHashes) == 1 {
+			log.Println("start over")
+			blockHashes, _ = getChildren(genHash)
+		} else {
+			blockHashes = blockHashes[1:]
+		}
 	}
 
 	lengthOfChain := len(blockHashes)

@@ -60,26 +60,34 @@ var app = new Vue({
         },
         getBlocks: function() {
             this.$http.get('/getBlocks').then(function(response) {
-                //console.log(response)
-                this.BlockChain = response.body.Blocks
-                this.blocksWithShapes = []
-                for (var i = 0; i < this.BlockChain.length; i++) {
-                    if (this.BlockChain[i].Shapes.length > 0) {
-                        this.blocksWithShapes.push(this.BlockChain[i])
+                console.log(response)
+                    //this.BlockChain = response.body.Blocks
+                console.log(this.BlockChain)
+                for (var i = 0; i < response.body.Blocks.length; i++) {
+                    this.BlockChain.push(response.body.Blocks[i])
+                    if (response.body.Blocks[i].length > 0) {
+                        this.blockswithShapes.push(response.body.Blocks[i])
                     }
                 }
+                console.log(this.BlockChain)
+
+                // for (var i = 0; i < this.BlockChain.length; i++) {
+                //     if (this.BlockChain[i].Shapes.length > 0) {
+                //         this.blocksWithShapes.push(this.BlockChain[i])
+                //     }
+                // }
             })
         },
         initGetBlocks: function() {
             this.$http.get('/getBlocks').then(function(response) {
-                //console.log(response)
+                console.log(response)
                 this.BlockChain = response.body.Blocks
                 for (var i = 0; i < this.BlockChain.length; i++) {
                     for (var j = 0; j < this.BlockChain[i].Shapes.length; j++) {
                         this.Shapes.push(this.BlockChain[i].Shapes[j])
                     }
                 }
-                this.indexBlockChain = 5
+                console.log(this.BlockChain)
             })
         },
         filterShapes: function(block) {

@@ -40,6 +40,8 @@ type LongestChainJson struct {
 
 var canvasSets CanvasSets
 var canvasGlobal blockartlib.Canvas
+var lastLongestHash string
+var longestChainLength int
 
 func main() {
 	addrs, _ := net.InterfaceAddrs()
@@ -62,14 +64,10 @@ func main() {
 
 	// Proper Key Generate
 	privBytes, _ := hex.DecodeString(args[0])
-	//pubBytes, _ := hex.DecodeString(args[2])
 	privKey, err := x509.ParseECPrivateKey(privBytes)
 	if checkError(err) != nil {
 		log.Fatalln("Error with Private Key")
 	}
-	//pubBytes, _ := hex.DecodeString(args[1])
-	//pubKey, err := x509.ParsePKIXPublicKey(pubBytes)
-
 	// Open a canvas.
 	canvas, setting, err := blockartlib.OpenCanvas(minerAddr, *privKey)
 	if checkError(err) != nil {
@@ -81,36 +79,6 @@ func main() {
 	canvasSets = *new(CanvasSets)
 	canvasSets.X = setting.CanvasXMax
 	canvasSets.Y = setting.CanvasYMax
-	// _, _ = canvas.GetShapes("")
-
-	// validateNum := 2
-
-	// // Add a line.
-	// shapeHash, blockHash, ink, err := canvas.AddShape(validateNum, blockartlib.PATH, "M 0 0 L 0 5", "transparent", "red")
-	// if checkError(err) != nil {
-	// 	return
-	// }
-
-	// // Add another line.
-	// shapeHash2, blockHash2, ink2, err := canvas.AddShape(validateNum, blockartlib.PATH, "M 0 0 L 5 0", "transparent", "blue")
-	// if checkError(err) != nil {
-	// 	return
-	// }
-
-	// // Delete the first line.
-	// ink3, err := canvas.DeleteShape(validateNum, shapeHash)
-	// if checkError(err) != nil {
-	// 	return
-	// }
-
-	// // assert ink3 > ink2
-
-	// // Close the canvas.
-	// ink4, err := canvas.CloseCanvas()
-	// if checkError(err) != nil {
-	// 	return
-	// }
-	//http.HandleFunc("/", handler)
 
 	fmt.Println("Listening on: ", webserverAddr)
 	http.Handle("/", http.FileServer(http.Dir("./public")))
@@ -126,7 +94,15 @@ func CanvasHandler(w http.ResponseWriter, r *http.Request) {
 
 func BlocksHandler(w http.ResponseWriter, r *http.Request) {
 	genHash, _ := canvasGlobal.GetGenesisBlock()
-	blockHashes, lengthOfChain := getChildren(genHash)
+	var blockHashes []string
+	if len(lastLongestHash) == 0 {
+		blockHashes, _ = getChildren(genHash)
+	} else {
+		blockHashes, _ = getChildren(lastLongestHash)
+	}
+
+	lengthOfChain := len(blockHashes)
+
 	log.Println("AllBlockHashes: ", blockHashes)
 	log.Println("length of longestChain: ", lengthOfChain)
 
@@ -141,25 +117,16 @@ func BlocksHandler(w http.ResponseWriter, r *http.Request) {
 		LongestChainJson.Blocks[iBlock].Shapes = make([]string, len(shapeHashes))
 
 		for iShape, shapeHash := range shapeHashes {
-
 			svgString, _ := canvasGlobal.GetSvgString(shapeHash)
-			if iBlock == 2 {
-				log.Println("Block 2's hash:", shapeHash)
-				log.Println("Block 2", svgString)
-			}
 			if len(svgString) > 0 {
 				LongestChainJson.Blocks[iBlock].Shapes[iShape] = svgString
 			}
 		}
-		// Testing path
-		// if iBlock == 3 {
-		// LongestChainJson.Blocks[iBlock].Shapes = append(LongestChainJson.Blocks[iBlock].Shapes, `<path stroke="#f00" stroke-width="3" d=" M 50,50 L 100 100"/>`)
-		// } else if iBlock == 5 {
-		// 	LongestChainJson.Blocks[iBlock].Shapes = append(LongestChainJson.Blocks[iBlock].Shapes, `<path d="M10 80 C 40 10, 65 10, 95 80 S 150 150, 180 80" stroke="black" fill="transparent"/>`)
-
-		// }
+		if iBlock == len(blockHashes)-1 {
+			lastLongestHash = blockHash
+		}
 	}
-
+	log.Println("Last Longest Hash: ", lastLongestHash)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	json.NewEncoder(w).Encode(LongestChainJson)
 }

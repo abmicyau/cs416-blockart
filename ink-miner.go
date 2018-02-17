@@ -1195,6 +1195,24 @@ func (m *Miner) OpValidated(request *ArtnodeRequest, response *MinerResponse) (e
 	return
 }
 
+func (m *Miner) CloseCanvas(request *ArtnodeRequest, response *MinerResponse) (err error) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	token := request.Token
+	_, validToken := m.tokens[token]
+	if !validToken {
+		response.Error = errorLib.InvalidTokenError(token)
+		return
+	}
+
+	delete(m.tokens, token)
+	response.Payload = make([]interface{}, 1)
+	response.Payload[0] = m.inkAccounts[m.pubKeyString]
+
+	return
+}
+
 // </RPC METHODS>
 ////////////////////////////////////////////////////////////////////////////////////////////
 

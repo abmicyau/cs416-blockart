@@ -375,17 +375,9 @@ func (m *Miner) initBlockchain() {
 
 	sortedMap := sortMap(mapMinerAndLength)
 	// Then get go through from highest to lowest
-	for i, pair := range sortedMap {
-		// Get Blockchain from miner, if valid, then done
-		// otherwise go to the next one
-	}
-
-	// For each connected miner, request their longest blockchain, and then
-	// simulate adding that blockchain to this miner to check for validity
-	for _, minerCon := range m.miners {
+	for _, pair := range sortedMap {
 		singleResponse := new(MinerResponse)
-		minerCon.Call("Miner.GetBlockChain", request, singleResponse)
-
+		m.miners[pair.Key].Call("Miner.GetBlockChain", request, singleResponse)
 		if len(singleResponse.Payload) > 0 {
 			currentChain := singleResponse.Payload[0].([]Block)
 			isChainValid := true
@@ -409,19 +401,58 @@ func (m *Miner) initBlockchain() {
 			// then set it as the new longest chain
 			if isChainValid && len(currentChain) > len(longestChain) {
 				longestChain = currentChain
+				break
 			}
 
 			// Reset the miner state
 			m.initBlockchainCache()
+
+			// Get Blockchain from miner, if valid, then done
+			// otherwise go to the next one
 		}
 	}
+	// For each connected miner, request their longest blockchain, and then
+	// simulate adding that blockchain to this miner to check for validity
+	// for _, minerCon := range m.miners {
+	// 	singleResponse := new(MinerResponse)
+	// 	minerCon.Call("Miner.GetBlockChain", request, singleResponse)
+
+	// 	if len(singleResponse.Payload) > 0 {
+	// 		currentChain := singleResponse.Payload[0].([]Block)
+	// 		isChainValid := true
+
+	// 		// The order of currentChain from low to high indices is newest to oldest, so
+	// 		// we have to traverse backwards
+	// 		for i := len(currentChain) - 1; i >= 0; i-- {
+	// 			block := &currentChain[i]
+
+	// 			// If the block is invalid, the chain is also invalid, so move on to the next chain
+	// 			if m.validateBlock(block) != nil {
+	// 				isChainValid = false
+	// 				break
+	// 			}
+	// 			// Else, the block is valid, so apply the block to simulate
+	// 			m.addBlock(block)
+	// 			m.applyBlock(block)
+	// 		}
+
+	// 		// If the chain is valid and longer than any other valid chain we've received,
+	// 		// then set it as the new longest chain
+	// 		if isChainValid && len(currentChain) > len(longestChain) {
+	// 			longestChain = currentChain
+	// 		}
+
+	// 		// Reset the miner state
+	// 		m.initBlockchainCache()
+	// 	}
+	// }
 
 	if len(longestChain) > 0 {
-		for i := len(longestChain) - 1; i >= 0; i-- {
-			block := &longestChain[i]
-			m.addBlock(block)
-			m.applyBlock(block)
-		}
+		// for i := len(longestChain) - 1; i >= 0; i-- {
+		// 	block := &longestChain[i]
+		// 	m.addBlock(block)
+		// 	m.applyBlock(block)
+		// }
 		logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.blockchainHead].BlockNo+1)
 	}
 }

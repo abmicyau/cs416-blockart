@@ -311,7 +311,6 @@ func (m *Miner) getMiners() {
 	if len(m.miners) < int(m.settings.MinNumMinerConnections) {
 		m.serverConn.Call("RServer.GetNodes", m.pubKey, &addrSet)
 		m.connectToMiners(addrSet)
-		logger.Println("Current set of Addresses and Miners: ", addrSet, m.miners)
 	}
 }
 
@@ -429,7 +428,6 @@ func (m *Miner) mineBlock() {
 		m.lock.Lock()
 		if m.newLongestChain {
 			m.newLongestChain = false
-			logger.Println("Got a new longest chain, switching to: ", m.blockchainHead)
 			m.lock.Unlock()
 			return
 		} else {
@@ -690,7 +688,7 @@ func (m *Miner) blockSuccessfullyMined(block *Block) bool {
 		if err != nil {
 			return false
 		}
-		logger.Println("Found a new Block!: ", block, blockHash)
+		logger.Println("Found a new Block. [" + fmt.Sprint(block.BlockNo) + "] [" + blockHash + "]")
 		m.addBlock(block)
 		m.applyBlock(block)
 		time.Sleep(50 * time.Millisecond)
@@ -722,6 +720,7 @@ func (m *Miner) moveUnminedToUnvalidated(block *Block) {
 			PubKeyString: opRecord.PubKeyString}
 		m.unvalidatedOps[opRecord.OpSig] = newOpRecord
 		delete(m.unminedOps, opRecord.OpSig)
+		logger.Println("OperationRecord has been placed into a block. [" + opRecord.Op.Shape.ShapeSvgString + "]")
 	}
 }
 
@@ -732,8 +731,10 @@ func (m *Miner) moveUnvalidatedToValidated() {
 		if opRecord.Op.NumRemaining <= 0 {
 			m.validatedOps[opRecord.OpSig] = opRecord
 			delete(m.unvalidatedOps, opRecord.OpSig)
+			logger.Println("OperationRecord has been validated. [" + opRecord.Op.Shape.ShapeSvgString + "]")
 		} else {
 			opRecord.Op.NumRemaining -= 1
+			logger.Println("OperationRecord validateNum decreased. [" + fmt.Sprint(opRecord.Op.NumRemaining) + "] [" + opRecord.Op.Shape.ShapeSvgString + "]")
 		}
 	}
 }
@@ -862,8 +863,6 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) (err e
 	block := request.Payload[0].(Block)
 	blockHash := hashBlock(&block)
 
-	logger.Println("Received Block: ", blockHash)
-
 	_, blockExists := m.blockchain[blockHash]
 	_, parentExists := m.blockchain[block.PrevHash]
 
@@ -877,16 +876,15 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) (err e
 	m.changeBlockchainHead(m.blockchainHead, oldBlockchainHead)
 
 	if err == nil {
+		logger.Println("Received new block. [" + fmt.Sprint(block.BlockNo) + "] [" + blockHash + "]")
+
 		m.addBlock(&block)
 
 		newChainLength := block.BlockNo
 		oldChainLength := m.blockchain[m.blockchainHead].BlockNo
 
-		logger.Println(newChainLength, oldChainLength)
-		logger.Println("Block hash: ", blockHash)
-		logger.Println("Longest Chain hash: ", m.blockchainHead)
-
 		if newChainLength > oldChainLength || (newChainLength == oldChainLength && blockHash > m.blockchainHead) {
+			logger.Println("Blockchain head changed. Now mining after block [" + fmt.Sprint(newChainLength) + "]")
 			m.applyBlock(&block)
 			m.validateUnminedOps()
 			m.newLongestChain = true
@@ -1230,10 +1228,10 @@ func (m *Miner) addOperationRecord(op *Operation) (opSig string) {
 func (m *Miner) validateBlock(block *Block) error {
 	blockHash := hashBlock(block)
 	if m.hashMatchesPOWDifficulty(blockHash, len(block.Records)) && m.validateOpIntegrity(block) && m.blockchain[block.PrevHash] != nil {
-		logger.Println("Received Block has been validated")
+		logger.Println("Block has been validated. [" + fmt.Sprint(block.BlockNo) + "] [" + blockHash + "]")
 		return nil
 	}
-	logger.Println("PROBLEM WITH VALIDATION")
+	logger.Println("Block could not be validated. ", blockHash)
 	return errorLib.ValidationError(blockHash)
 }
 

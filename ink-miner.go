@@ -457,7 +457,8 @@ func (m *Miner) mineBlock() {
 	}
 }
 
-// Manages miner state updates during a fast-forward OR a branch switch.
+// Manages miner state updates during a change of the blockchain head.
+//
 // Notes:
 // - When we are only doing a fast-forward, there is no 'oldBranch'. Also, 'newBranch'
 //   will only contain one block. Otherwise (if we are switching branches), this will
@@ -486,27 +487,31 @@ func (m *Miner) mineBlock() {
 // for blocks which exist in the miner's current block map, and are both
 // connected to the genesis block.
 //
-// TODO: Mutex
-//
 func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
-	// newBlock and oldBlock are "current" block pointers in the new and
-	// old blockchain, respectively, as we traverse backwards
+	// newBlock and oldBlock are "current" block pointers
 	newBlock := m.blockchain[newBlockHash]
 	oldBlock := m.blockchain[oldBlockHash]
+	// newBranch and oldBranch are chains of blocks in the new and old branches
+	// up to the most recent common ancestor.
 	newBranch := []*Block{}
 	oldBranch := []*Block{}
 
-	// [Fast Forward + Branch Switch]
-	// Add blocks to the new branch up to the block num of the old branch head
+	// Construct the part of the new branch up to the block with the same BlockNo
+	// as the old branch head
 	for newBlock.BlockNo > oldBlock.BlockNo {
 		newBranch = append(newBranch, newBlock)
 		newBlock = m.blockchain[newBlock.PrevHash]
 	}
 
-	// [Branch Switch Only]
-	// At this point, if newBlock and oldBlock are not equal, then we need to
-	// perform a branch switch. We add blocks to the new and old branches up to
-	// the most recent common ancestor.
+	// Construct the part of the old branch up to the block with the same BlockNo
+	// as the new branch head
+	for newBlock.BlockNo < oldBlock.BlockNo {
+		oldBranch = append(oldBranch, oldBlock)
+		oldBlock = m.blockchain[oldBlock.PrevHash]
+	}
+
+	// Construct the rest of the new and old branches at the same time, until
+	// their pointers are equal.
 	for newBlock != oldBlock {
 		newBranch = append(newBranch, newBlock)
 		oldBranch = append(oldBranch, oldBlock)
@@ -514,7 +519,6 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 		oldBlock = m.blockchain[oldBlock.PrevHash]
 	}
 
-	// [Branch Switch Only]
 	// Move each operation in the old branch back to the unmined group and reverse
 	// ink accounts.
 	for _, block := range oldBranch {
@@ -528,16 +532,12 @@ func (m *Miner) changeBlockchainHead(oldBlockHash, newBlockHash string) {
 		m.reverseBlockInk(block)
 	}
 
-	// [Fast Forward + Branch Switch]
 	// Apply the blocks in the new branch. NOTE THE ORDER IN WHICH THIS IS DONE.
-	// Must be oldest -> newest!
-	// If this is done in the correct order, it will also update the blockchainHead
+	// Must be oldest -> newest, in order to correctly validate unvalidated ops.
+	// If this is done in the correct order, it will also update the blockchainHead.
 	for i := len(newBranch) - 1; i >= 0; i-- {
 		m.applyBlock(newBranch[i])
 	}
-
-	m.validateUnminedOps()
-	m.newLongestChain = true
 }
 
 // Sends block to all connected miners
@@ -855,7 +855,7 @@ func (m *Miner) GetSvgString(request *ArtnodeRequest, response *MinerResponse) e
 	return nil
 }
 
-func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error {
+func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) (err error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -864,16 +864,19 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 
 	logger.Println("Received Block: ", blockHash)
 
-	err := m.validateBlock(&block)
-	if err != nil {
-		return err
+	_, blockExists := m.blockchain[blockHash]
+	_, parentExists := m.blockchain[block.PrevHash]
+
+	if blockExists || !parentExists {
+		return
 	}
 
-	// If the block is new, then we add it to our block tree, update
-	// parent/child info, and check to see whether or not we should
-	// change the current longest blockchain head. We also disseminate
-	// the block to connected miners.
-	if _, exists := m.blockchain[blockHash]; !exists {
+	oldBlockchainHead := m.blockchainHead
+	m.changeBlockchainHead(oldBlockchainHead, block.PrevHash)
+	err = m.validateBlock(&block)
+	m.changeBlockchainHead(m.blockchainHead, oldBlockchainHead)
+
+	if err == nil {
 		m.addBlock(&block)
 
 		newChainLength := block.BlockNo
@@ -883,19 +886,14 @@ func (m *Miner) SendBlock(request *MinerRequest, response *MinerResponse) error 
 		logger.Println("Block hash: ", blockHash)
 		logger.Println("Longest Chain hash: ", m.blockchainHead)
 
-		if newChainLength > oldChainLength {
-			if oldChainLength == 0 {
-				m.changeBlockchainHead(m.settings.GenesisBlockHash, blockHash)
-			} else {
-				m.changeBlockchainHead(m.blockchainHead, blockHash)
-			}
-		} else if newChainLength == oldChainLength {
-			if blockHash > m.blockchainHead {
-				m.changeBlockchainHead(m.blockchainHead, blockHash)
-			}
+		if newChainLength > oldChainLength || (newChainLength == oldChainLength && blockHash > m.blockchainHead) {
+			m.applyBlock(&block)
+			m.validateUnminedOps()
+			m.newLongestChain = true
 		}
 	}
-	return nil
+
+	return
 }
 
 func (m *Miner) SendOp(request *MinerRequest, response *MinerResponse) error {

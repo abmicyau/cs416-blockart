@@ -5,7 +5,7 @@ go run art-app.go [privKey] [miner ip:port]
 
 package main
 
-import "./blockartlib"
+import "proj1_b0z8_b4n0b_i5n8_m9r8/blockartlib"
 
 import (
 	"bufio"

@@ -29,8 +29,8 @@ import (
 	"sync"
 	"time"
 
-	"./errorlib"
-	"./shapelib"
+	"proj1_b0z8_b4n0b_i5n8_m9r8/errorlib"
+	"proj1_b0z8_b4n0b_i5n8_m9r8/shapelib"
 )
 
 //

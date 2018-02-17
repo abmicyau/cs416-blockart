@@ -16,7 +16,7 @@ import (
 	"os"
 	"time"
 
-	errorLib "../errorlib"
+	"proj1_b0z8_b4n0b_i5n8_m9r8/errorlib"
 )
 
 // Represents a type of shape in the BlockArt system.

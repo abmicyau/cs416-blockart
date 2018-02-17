@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"../blockartlib"
+	"proj1_b0z8_b4n0b_i5n8_m9r8/blockartlib"
 )
 
 type App struct {

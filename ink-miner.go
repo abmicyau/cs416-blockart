@@ -354,12 +354,10 @@ func (m *Miner) connectToMiners(addrs []net.Addr) {
 // The new miner will then apply the blocks again and start mining from the end of that chain
 
 func (m *Miner) initBlockchain() {
-	log.Println("initBlockChain")
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	request := new(MinerRequest)
-	var longestChain []Block
 
 	m.initBlockchainCache()
 
@@ -373,10 +371,8 @@ func (m *Miner) initBlockchain() {
 			mapMinerAndLength[minerAddr] = lengthMinerChain
 		}
 	}
-	log.Println("Map miner and length: ", mapMinerAndLength)
 
 	sortedMap := sortMap(mapMinerAndLength)
-	log.Println("Sorted Map: ", sortedMap)
 	// Then get go through from highest to lowest
 	for _, pair := range sortedMap {
 		singleResponse := new(MinerResponse)
@@ -402,8 +398,7 @@ func (m *Miner) initBlockchain() {
 
 			// If the chain is valid and longer than any other valid chain we've received,
 			// then set it as the new longest chain
-			if isChainValid && len(currentChain) > len(longestChain) {
-				longestChain = currentChain
+			if isChainValid {
 				logger.Println("Got an existing chain, start mining at blockNo: ", m.blockchain[m.blockchainHead].BlockNo+1)
 				break
 			}

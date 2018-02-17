@@ -550,7 +550,7 @@ func (c CanvasInstance) CloseCanvas() (inkRemaining uint32, err error) {
 	inkRemaining = response.Payload[0].(uint32)
 	*c.Closed = true
 
-	return 0, nil
+	return inkRemaining, nil
 }
 
 // </EXPORTED METHODS>

@@ -62,14 +62,12 @@ var app = new Vue({
             this.$http.get('/getBlocks').then(function(response) {
                 console.log(response)
                     //this.BlockChain = response.body.Blocks
-                console.log(this.BlockChain)
                 for (var i = 0; i < response.body.Blocks.length; i++) {
                     this.BlockChain.push(response.body.Blocks[i])
                     if (response.body.Blocks[i].length > 0) {
                         this.blockswithShapes.push(response.body.Blocks[i])
                     }
                 }
-                console.log(this.BlockChain)
 
                 // for (var i = 0; i < this.BlockChain.length; i++) {
                 //     if (this.BlockChain[i].Shapes.length > 0) {
@@ -79,7 +77,7 @@ var app = new Vue({
             })
         },
         initGetBlocks: function() {
-            this.$http.get('/getBlocks').then(function(response) {
+            this.$http.get('/getBlocksInit').then(function(response) {
                 console.log(response)
                 this.BlockChain = response.body.Blocks
                 for (var i = 0; i < this.BlockChain.length; i++) {
@@ -87,7 +85,6 @@ var app = new Vue({
                         this.Shapes.push(this.BlockChain[i].Shapes[j])
                     }
                 }
-                console.log(this.BlockChain)
             })
         },
         filterShapes: function(block) {

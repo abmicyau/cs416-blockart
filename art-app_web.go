@@ -84,12 +84,48 @@ func main() {
 	http.Handle("/", http.FileServer(http.Dir("./public")))
 	http.HandleFunc("/getCanvas", CanvasHandler)
 	http.HandleFunc("/getBlocks", BlocksHandler)
+	http.HandleFunc("/getBlocksInit", InitBlocksHandler)
 	http.ListenAndServe(webserverAddr, nil)
 }
 
 func CanvasHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	json.NewEncoder(w).Encode(canvasSets)
+}
+
+func InitBlocksHandler(w http.ResponseWriter, r *http.Request) {
+	genHash, _ := canvasGlobal.GetGenesisBlock()
+	var blockHashes []string
+	blockHashes, _ = getChildren(genHash)
+
+	lengthOfChain := len(blockHashes)
+
+	log.Println("AllBlockHashes: ", blockHashes)
+	log.Println("length of longestChain: ", lengthOfChain)
+
+	LongestChainJson := *new(LongestChainJson)
+	LongestChainJson.Blocks = make([]BlockJson, lengthOfChain)
+
+	for iBlock, blockHash := range blockHashes {
+
+		shapeHashes, _ := canvasGlobal.GetShapes(blockHash)
+
+		LongestChainJson.Blocks[iBlock].BlockHash = blockHash
+		LongestChainJson.Blocks[iBlock].Shapes = make([]string, len(shapeHashes))
+
+		for iShape, shapeHash := range shapeHashes {
+			svgString, _ := canvasGlobal.GetSvgString(shapeHash)
+			if len(svgString) > 0 {
+				LongestChainJson.Blocks[iBlock].Shapes[iShape] = svgString
+			}
+		}
+		if iBlock == len(blockHashes)-1 {
+			lastLongestHash = blockHash
+		}
+	}
+	log.Println("Last Longest Hash: ", lastLongestHash)
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	json.NewEncoder(w).Encode(LongestChainJson)
 }
 
 func BlocksHandler(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +135,7 @@ func BlocksHandler(w http.ResponseWriter, r *http.Request) {
 		blockHashes, _ = getChildren(genHash)
 	} else {
 		blockHashes, _ = getChildren(lastLongestHash)
+		blockHashes = blockHashes[1:]
 	}
 
 	lengthOfChain := len(blockHashes)

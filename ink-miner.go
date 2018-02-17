@@ -198,6 +198,7 @@ func main() {
 	gob.Register(errorLib.InvalidSignatureError{})
 	gob.Register(errorLib.InvalidTokenError(""))
 	gob.Register(errorLib.ValidationError(""))
+	gob.Register(errorLib.InsufficientInkError(0))
 	miner := new(Miner)
 	miner.init()
 	miner.listenRPC()

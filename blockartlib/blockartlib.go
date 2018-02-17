@@ -252,6 +252,7 @@ func OpenCanvas(minerAddr string, privKey ecdsa.PrivateKey) (canvas Canvas, sett
 	gob.Register(errorLib.InvalidSignatureError{})
 	gob.Register(errorLib.InvalidTokenError(""))
 	gob.Register(errorLib.ValidationError(""))
+	gob.Register(errorLib.InsufficientInkError(0))
 
 	miner, err := rpc.Dial("tcp", minerAddr)
 	if checkError(err) != nil {
